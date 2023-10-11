@@ -1,0 +1,4 @@
+# emacs ignores
+*~
+*.jar.zip
+*.log
