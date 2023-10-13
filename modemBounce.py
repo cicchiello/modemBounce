@@ -1,31 +1,86 @@
 #!/usr/bin/python
 
+import os
+import sys
 import requests
 import time
 import datetime
+import subprocess
 
-def test(triesLeft):
-    url = "https://google.com"
+progname = "unknown"
+shellyBaseurl = 'http://10.0.0.212'
+
+
+def nowstr():
+    fmt = '%Y-%b-%d %H:%M:%S'
+    return datetime.datetime.today().strftime('%Y-%b-%d %H:%M:%S')
+
+
+def sendEmail():
+    print("WARNING(%s): connectivity failure detected; preparing an email..." % (nowstr()))
+    filename = "/tmp/"+progname+"-msg.txt"
+    f = open(filename, "w")
+    f.write("To: j.cicchiello@ieee.org\n")
+    print("INFO(%s): To: j.cicchiello@ieee.org" % (nowstr()))
+    f.write("From: jcicchiello@ptd.net\n")
+    print("INFO(%s): From: jcicchiello@ptd.net" % (nowstr()))
+    f.write("Subject: ALERT: %s\n" % progname)
+    print("INFO(%s): Subject: ALERT %s" % (nowstr(), progname))
+    f.write("\n")
+    print("INFO(%s): " % (nowstr()))
+    f.write("INFO(%s): %s has detected a connectivity failure!\n" % (nowstr(), progname))
+    print("INFO(%s): %s has detected a connectivity failure!" % (nowstr(), progname))
+    f.write("\n")
+    print("INFO(%s): " % (nowstr()))
+    f.write("\n")
+    print("INFO(%s): " % (nowstr()))
+    f.close()
+    with open(filename, 'r') as infile:
+        subprocess.Popen(['/usr/sbin/ssmtp', 'j.cicchiello@gmail.com'],
+                         stdin=infile, stdout=sys.stdout, stderr=sys.stderr)
+
+        
+def test(url, triesLeft):
     try: 
         response = requests.get(url)
  
         #print("Status Code", response.status_code)
-        print("INFO(%s): Passed" % (datetime.datetime.now()))
+        print("INFO(%s): Connectivity test passed" % (nowstr()))
 
     except:
-        print("INFO(%s): Failed (%d); pausing for one minute..." % (datetime.datetime.now(), triesLeft))
+        print("WARNING(%s): Connectivity test failed (%d); pausing for one minute..." % (nowstr(), triesLeft))
         if triesLeft > 0:
             time.sleep(60)
-            test(triesLeft-1)
+            test(url, triesLeft-1)
         else:
             # all tries exhausted...   have to bounce the modem
-            print("INFO(%s): All tries exhausted; turning off the modems..." % datetime.datetime.now())
+            print("WARNING(%s): All tries exhausted; turning off the modems..." % nowstr())
+
+            # Turn off the modem
+            requests.get('%s/rpc/Switch.Set?id=0&on=false' % shellyBaseurl)
+            
             # .. insert call to turn off the modems
             time.sleep(30)
-            print("INFO(%s): turning modems back on..." % datetime.datetime.now())
-            # .. insert call to turn on the modems
+            print("WARNING(%s): turning modems back on..." % nowstr())
 
+            # Turn on the modem
+            requests.get('%s/rpc/Switch.Set?id=0&on=true' % shellyBaseurl)
+
+            # wait 2 minutes to (hopefully) fully come back online, then send an alert email
+            time.sleep(120)
+            print("WARNING(%s): sending alert email..." % nowstr())
+            sendEmail()
 
 
 if __name__ == "__main__":
-    test(5)
+    url = "https://google.com"
+    progname=os.path.basename(sys.argv[0])
+    if (len(sys.argv) > 1) and (sys.argv[1] == '-t'):
+        url = "https://googlefoo.com"
+        print("INFO(%s): %s testing with url: %s" % (nowstr(), progname, url))
+    elif (len(sys.argv) > 1) and (sys.argv[1] == '-e'):
+        print("INFO(%s): %s testing email delivery" % (nowstr(), progname))
+        sendEmail()
+    else:
+        print("INFO(%s): %s running with url: %s" % (nowstr(), progname, url))
+    test(url, 5)
