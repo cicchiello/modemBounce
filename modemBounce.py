@@ -45,7 +45,8 @@ def test(url, triesLeft):
         response = requests.get(url)
  
         #print("Status Code", response.status_code)
-        print("INFO(%s): Connectivity test passed" % (nowstr()))
+        if verbose: 
+            print("INFO(%s): Connectivity test passed" % (nowstr()))
 
     except:
         print("WARNING(%s): Connectivity test failed (%d); pausing for one minute..." % (nowstr(), triesLeft))
@@ -59,7 +60,7 @@ def test(url, triesLeft):
             # Turn off the modem
             requests.get('%s/rpc/Switch.Set?id=0&on=false' % shellyBaseurl)
             
-            # .. insert call to turn off the modems
+            # .. wait a bit
             time.sleep(30)
             print("WARNING(%s): turning modems back on..." % nowstr())
 
@@ -75,6 +76,7 @@ def test(url, triesLeft):
 if __name__ == "__main__":
     url = "https://google.com"
     progname=os.path.basename(sys.argv[0])
+    verbose = False
     if (len(sys.argv) > 1) and (sys.argv[1] == '-t'):
         url = "https://googlefoo.com"
         print("INFO(%s): %s testing with url: %s" % (nowstr(), progname, url))
@@ -82,5 +84,6 @@ if __name__ == "__main__":
         print("INFO(%s): %s testing email delivery" % (nowstr(), progname))
         sendEmail()
     else:
-        print("INFO(%s): %s running with url: %s" % (nowstr(), progname, url))
+        if verbose: 
+            print("INFO(%s): %s running with url: %s" % (nowstr(), progname, url))
     test(url, 5)
