@@ -28,8 +28,8 @@ def sendEmail():
     print("INFO(%s): Subject: ALERT %s" % (nowstr(), progname))
     f.write("\n")
     print("INFO(%s): " % (nowstr()))
-    f.write("INFO(%s): %s has detected a connectivity failure!\n" % (nowstr(), progname))
-    print("INFO(%s): %s has detected a connectivity failure!" % (nowstr(), progname))
+    f.write("INFO(%s): %s has detected, and recovered from, a connectivity failure!\n" % (nowstr(), progname))
+    print("INFO(%s): %s has detected, and recovered from, a connectivity failure!" % (nowstr(), progname))
     f.write("\n")
     print("INFO(%s): " % (nowstr()))
     f.write("\n")
@@ -39,7 +39,32 @@ def sendEmail():
         subprocess.Popen(['/usr/sbin/ssmtp', 'j.cicchiello@gmail.com'],
                          stdin=infile, stdout=sys.stdout, stderr=sys.stderr)
 
-        
+
+def bounce():
+    print("WARNING(%s): Turning off the modems..." % nowstr())
+    
+    # Turn off the modem
+    requests.get('%s/rpc/Switch.Set?id=0&on=false' % shellyBaseurl)
+    
+    # .. wait a bit
+    print("WARNING(%s): waiting 15s..." % nowstr())
+    time.sleep(15)
+    
+    print("WARNING(%s): turning modems back on..." % nowstr())
+    
+    # Turn on the modem
+    requests.get('%s/rpc/Switch.Set?id=0&on=true' % shellyBaseurl)
+    
+    # wait 2 minutes to (hopefully) fully come back online, then send an alert email
+    print("WARNING(%s): waiting 210s..." % nowstr())
+    time.sleep(210)
+    
+    print("WARNING(%s): sending alert email..." % nowstr())
+    sendEmail()
+    time.sleep(30)
+
+    
+
 def test(url, triesLeft):
     try: 
         response = requests.get(url)
@@ -55,35 +80,25 @@ def test(url, triesLeft):
             test(url, triesLeft-1)
         else:
             # all tries exhausted...   have to bounce the modem
-            print("WARNING(%s): All tries exhausted; turning off the modems..." % nowstr())
-
-            # Turn off the modem
-            requests.get('%s/rpc/Switch.Set?id=0&on=false' % shellyBaseurl)
-            
-            # .. wait a bit
-            time.sleep(30)
-            print("WARNING(%s): turning modems back on..." % nowstr())
-
-            # Turn on the modem
-            requests.get('%s/rpc/Switch.Set?id=0&on=true' % shellyBaseurl)
-
-            # wait 2 minutes to (hopefully) fully come back online, then send an alert email
-            time.sleep(120)
-            print("WARNING(%s): sending alert email..." % nowstr())
-            sendEmail()
+            print("WARNING(%s): All tries exhausted..." % nowstr())
+            bounce()
 
 
 if __name__ == "__main__":
     url = "https://google.com"
     progname=os.path.basename(sys.argv[0])
-    verbose = False
-    if (len(sys.argv) > 1) and (sys.argv[1] == '-t'):
+    verbose = True
+    if (len(sys.argv) > 1) and (sys.argv[1] == '-t1'):
         url = "https://googlefoo.com"
         print("INFO(%s): %s testing with url: %s" % (nowstr(), progname, url))
+    elif (len(sys.argv) > 1) and (sys.argv[1] == '-t2'):
+        print("INFO(%s): %s testing: forcing bounce..." % (nowstr(), progname))
+        bounce()
     elif (len(sys.argv) > 1) and (sys.argv[1] == '-e'):
         print("INFO(%s): %s testing email delivery" % (nowstr(), progname))
         sendEmail()
     else:
         if verbose: 
             print("INFO(%s): %s running with url: %s" % (nowstr(), progname, url))
-    test(url, 5)
+
+    test(url, 4) # 4 retries means 5 tries (1 minute per try)
