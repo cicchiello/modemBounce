@@ -7,7 +7,7 @@ import time
 import datetime
 import subprocess
 
-progname = "unknown"
+progname = "modemBounce.py"
 shellyBaseurl = 'http://10.0.0.212'
 
 
@@ -35,11 +35,12 @@ def sendEmail():
     f.write("\n")
     print("INFO(%s): " % (nowstr()))
     f.close()
+    time.sleep(5)
     with open(filename, 'r') as infile:
-        subprocess.Popen(['/usr/sbin/ssmtp', 'j.cicchiello@gmail.com'],
+        subprocess.Popen(['/usr/bin/msmtp', 'j.cicchiello@gmail.com'],
                          stdin=infile, stdout=sys.stdout, stderr=sys.stderr)
 
-
+        
 def bounce():
     print("WARNING(%s): Turning off the modems..." % nowstr())
     
@@ -90,7 +91,7 @@ if __name__ == "__main__":
     verbose = False
     if (len(sys.argv) > 1) and (sys.argv[1] == '-t1'):
         url = "https://googlefoo.com"
-        print("INFO(%s): %s testing with url: %s" % (nowstr(), progname, url))
+        print("INFO(%s): %s testing with non-existent url: %s" % (nowstr(), progname, url))
     elif (len(sys.argv) > 1) and (sys.argv[1] == '-t2'):
         print("INFO(%s): %s testing: forcing bounce..." % (nowstr(), progname))
         bounce()
