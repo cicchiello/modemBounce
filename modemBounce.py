@@ -55,7 +55,8 @@ def bounce():
     # Turn on the modem
     requests.get('%s/rpc/Switch.Set?id=0&on=true' % shellyBaseurl)
     
-    # wait 2 minutes to (hopefully) fully come back online, then send an alert email
+    # wait 210s to (hopefully) fully come back online, then send an alert email
+    # (Note shorter waits didn't work reliably)
     print("WARNING(%s): waiting 210s..." % nowstr())
     time.sleep(210)
     
@@ -70,8 +71,7 @@ def test(url, triesLeft):
         response = requests.get(url)
  
         #print("Status Code", response.status_code)
-        if verbose: 
-            print("INFO(%s): Connectivity test passed" % (nowstr()))
+        print("INFO(%s): Connectivity test passed" % (nowstr()))
 
     except:
         print("WARNING(%s): Connectivity test failed (%d); pausing for one minute..." % (nowstr(), triesLeft))
@@ -87,7 +87,7 @@ def test(url, triesLeft):
 if __name__ == "__main__":
     url = "https://google.com"
     progname=os.path.basename(sys.argv[0])
-    verbose = True
+    verbose = False
     if (len(sys.argv) > 1) and (sys.argv[1] == '-t1'):
         url = "https://googlefoo.com"
         print("INFO(%s): %s testing with url: %s" % (nowstr(), progname, url))
