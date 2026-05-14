@@ -1,9 +1,9 @@
 #!/bin/bash
 
 ROOT=$(dirname ${0})
-log=/home/pi/logs/modemBounce.log
+log="${1}"
 
 d=$(date +"%Y-%m-%d %H:%M:%S")
 /bin/echo "INFO(${d}): Invoking modemBounce.py..." >> ${log}
 
-/home/pi/modemBounce/modemBounce.py 2>&1 >> ${log}
+"${HOME}/modemBounce/modemBounce.py" 2>&1 >> ${log}
