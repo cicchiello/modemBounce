@@ -7,15 +7,17 @@ import time
 import datetime
 import subprocess
 import socket
+from gpiozero import LED
 
 progname = "modemBounce.py"
 
 Internet = "8.8.8.8"
 DNS = "google.com"
-Modem = "192.168.100.1"
-Router = "10.0.0.1"
+ModemIP = "192.168.100.1"
+RouterIP = "10.0.0.1"
 
 shellyBaseurl = 'http://10.0.0.212'
+
 
 
 def usage():
@@ -29,6 +31,7 @@ def usage():
     print("   -tMODEM\t\ttest Modem failure")
     print("   -tBOUNCE-MODEM\ttest the modem bounce")
     print("   -tBOUNCE-ROUTER\ttest the router bounce")
+    print("   -e\t\t\ttest email sendx")
     
     
 
@@ -37,8 +40,8 @@ def nowstr():
     return datetime.datetime.today().strftime('%Y-%b-%d %H:%M:%S')
 
 
-def sendEmail():
-    print("WARNING(%s): connectivity failure detected; preparing an email..." % (nowstr()))
+def sendEmail(reason):
+    print("WARNING(%s): connectivity failure detected(%s); preparing an email..." % (nowstr(), reason))
     filename = "/tmp/"+progname+"-msg.txt"
     f = open(filename, "w")
     f.write("To: j.cicchiello@ieee.org\n")
@@ -49,8 +52,8 @@ def sendEmail():
     print("INFO(%s): Subject: ALERT %s" % (nowstr(), progname))
     f.write("\n")
     print("INFO(%s): " % (nowstr()))
-    f.write("INFO(%s): %s has detected, and recovered from, a connectivity failure!\n" % (nowstr(), progname))
-    print("INFO(%s): %s has detected, and recovered from, a connectivity failure!" % (nowstr(), progname))
+    f.write("INFO(%s): %s has detected, and recovered from, a connectivity failure (%s)!\n" % (nowstr(), progname, reason))
+    print("INFO(%s): %s has detected, and recovered from, a connectivity failure (%s)!" % (nowstr(), progname, reason))
     f.write("\n")
     print("INFO(%s): " % (nowstr()))
     f.write("\n")
@@ -83,14 +86,33 @@ def bounceModem():
     time.sleep(210)
     
     print("WARNING(%s): sending alert email..." % nowstr())
-    sendEmail()
+    sendEmail("modem failure")
     time.sleep(30)
 
 
 def bounceRouter():
     print("WARNING(%s): Turning off the router..." % nowstr())
 
+    # Turn off the router
+    os.system("pinctrl set 23 dl")
 
+    # .. wait a bit
+    print("WARNING(%s): waiting 15s..." % nowstr())
+    time.sleep(15)
+    
+    print("WARNING(%s): turning router back on..." % nowstr())
+    os.system("pinctrl set 23 dh")
+
+    # wait 210s to (hopefully) fully come back online, then send an alert email
+    # (Note shorter waits didn't work reliably)
+    print("WARNING(%s): waiting 210s..." % nowstr())
+    time.sleep(210)
+    
+    print("WARNING(%s): sending alert email..." % nowstr())
+    sendEmail("router failure")
+    time.sleep(30)
+
+    
 def dns_works(hostname):
     try:
         socket.gethostbyname(hostname)
@@ -117,23 +139,23 @@ def ping(host, count=3, timeout_sec=2):
     return result.returncode == 0
 
 
-def test(router, modem, internet, dns, triesLeft):
-    #print("TRACE(test): router(%s), modem(%s), internet(%s), dns(%s), triesLeft(%d)" % \
-    #      (router, modem, internet, dns, triesLeft))
-    if not ping(router):
+def test(routerIP, modemIP, internet, dns, triesLeft):
+    #print("TRACE(test): routerIP(%s), modemIP(%s), internet(%s), dns(%s), triesLeft(%d)" % \
+    #      (routerIP, modemIP, internet, dns, triesLeft))
+    if not ping(routerIP):
         print("WARNING(%s): Router test failed (%d); pausing for one minute..." % (nowstr(), triesLeft))
         if triesLeft > 0:
             time.sleep(60)
-            test(router, modem, internet, dns, triesLeft-1)
+            test(routerIP, modemIP, internet, dns, triesLeft-1)
         else:
             # all tries exhausted...   have to bounce the router
             print("WARNING(%s): All router tries exhausted; bouncing router..." % nowstr())
             bounceRouter()
-    elif not ping(modem):
+    elif not ping(modemIP):
         print("WARNING(%s): Modem test failed (%d); pausing for one minute..." % (nowstr(), triesLeft))
         if triesLeft > 0:
             time.sleep(60)
-            test(router, modem, internet, dns, triesLeft-1)
+            test(routerIP, modemIP, internet, dns, triesLeft-1)
         else:
             # all tries exhausted...   have to bounce the modem
             print("WARNING(%s): All modem tries exhausted; bouncing modem..." % nowstr())
@@ -142,7 +164,7 @@ def test(router, modem, internet, dns, triesLeft):
         print("WARNING(%s): Internet test failed (%d); pausing for one minute..." % (nowstr(), triesLeft))
         if triesLeft > 0:
             time.sleep(60)
-            test(router, modem, internet, dns, triesLeft-1)
+            test(routerIP, modemIP, internet, dns, triesLeft-1)
         else:
             # all tries exhausted...   have to bounce the modem
             print("WARNING(%s): All internet tries exhausted; bouncing modem..." % nowstr())
@@ -151,7 +173,7 @@ def test(router, modem, internet, dns, triesLeft):
         print("WARNING(%s): DNS test failed (%d); pausing for one minute..." % (nowstr(), triesLeft))
         if triesLeft > 0:
             time.sleep(60)
-            test(router, modem, internet, dns, triesLeft-1)
+            test(routerIP, modemIP, internet, dns, triesLeft-1)
         else:
             # all tries exhausted...   have to bounce the modem
             print("WARNING(%s): All DNS tries exhausted; bouncing modem..." % nowstr())
@@ -164,10 +186,10 @@ def test(router, modem, internet, dns, triesLeft):
 
 
 if __name__ == "__main__":
-    router = Router;
+    routerIP = RouterIP;
     internet = Internet;
     dns = DNS;
-    modem = Modem;
+    modemIP = ModemIP;
     
     progname=os.path.basename(sys.argv[0])
     verbose = False
@@ -175,14 +197,14 @@ if __name__ == "__main__":
         dns = dns+"foo"
         print("INFO(%s): %s testing with non-existent dns: %s" % (nowstr(), progname, dns))
     elif (len(sys.argv) > 1) and (sys.argv[1] == '-tROUTER'):
-        router = router + "11"
-        print("INFO(%s): %s testing with non-existent router ip: %s" % (nowstr(), progname, router))
+        routerIP = routerIP + "11"
+        print("INFO(%s): %s testing with non-existent router ip: %s" % (nowstr(), progname, routerIP))
     elif (len(sys.argv) > 1) and (sys.argv[1] == '-tIP'):
         internet = internet + "1"
         print("INFO(%s): %s testing with non-existent IP: %s" % (nowstr(), progname, internet))
     elif (len(sys.argv) > 1) and (sys.argv[1] == '-tMODEM'):
-        modem = modem + "11"
-        print("INFO(%s): %s testing with non-existent modem IP: %s" % (nowstr(), progname, modem))
+        modemIP = modemIP + "11"
+        print("INFO(%s): %s testing with non-existent modem IP: %s" % (nowstr(), progname, modemIP))
     elif (len(sys.argv) > 1) and (sys.argv[1] == '-tBOUNCE-MODEM'):
         print("INFO(%s): %s testing: forcing bounce..." % (nowstr(), progname))
         bounceModem()
@@ -191,16 +213,21 @@ if __name__ == "__main__":
         bounceRouter()
     elif (len(sys.argv) > 1) and (sys.argv[1] == '-e'):
         print("INFO(%s): %s testing email delivery" % (nowstr(), progname))
-        sendEmail()
+        sendEmail("testing email")
     elif (len(sys.argv) > 1) and (sys.argv[1] == '--help'):
         usage()
         exit(0)
     elif (len(sys.argv) > 1) and (sys.argv[1] == '-h'):
         usage()
         exit(0)
-    else:
-        if verbose: 
-            print("INFO(%s): %s running with dns: %s" % (nowstr(), progname, dns))
+    elif (len(sys.argv) > 1):
+        print("ERROR: unrecognized argument: %s" % sys.argv[1])
+        usage()
+        exit(0)
 
-    test(router, modem, internet, dns, 4) # 4 retries means 5 tries (1 minute per try)
+    # normally-off SSR, so turn it on now; use system cmd so the action isn't scoped to this script
+    os.system("pinctrl set 23 op")
+    os.system("pinctrl set 23 dh")
+    
+    test(routerIP, modemIP, internet, dns, 4) # 4 retries means 5 tries (1 minute per try)
 
