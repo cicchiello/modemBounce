@@ -1,0 +1,17 @@
+services:
+  wifi-store:
+    build: .
+    container_name: wifi-store
+    restart: unless-stopped
+
+    ports:
+      - "10.0.0.214:8092:8092"
+
+    environment:
+      PORT: "8092"
+      DATA_FILE: "/data/wifi.json"
+      MAX_BODY_BYTES: "8192"
+      SHARED_KEY: "${SHARED_KEY}"
+
+    volumes:
+      - /srv/dev-disk-by-uuid-1b03c883-24b8-4bbc-9e3f-9fdc70389470/pi-nas/services-data/wifi-store:/data
