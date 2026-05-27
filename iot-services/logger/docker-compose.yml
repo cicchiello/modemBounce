@@ -1,0 +1,17 @@
+services:
+  bouncy-logger:
+    build: .
+    container_name: bouncy-logger
+    restart: unless-stopped
+
+    ports:
+      - "10.0.0.214:8091:8091"
+
+    environment:
+      PORT: "8091"
+      LOG_FILE: "/data/bouncy.log"
+      MAX_BODY_BYTES: "4096"
+      SHARED_KEY: "${SHARED_KEY}"
+
+    volumes:
+      - /srv/dev-disk-by-uuid-1b03c883-24b8-4bbc-9e3f-9fdc70389470/pi-nas/services-data/bouncy-logger:/data
