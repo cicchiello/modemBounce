@@ -15,8 +15,7 @@
     - send email
     - provide blinking status indicator light
     - sleep mode between connectivity tests
-    - find a way to persist the config stuff
-    - provide access point for config stuff: definitions of SSID,PSWD,email-smtp-details
+    - provide access point for provisioning config stuff: definitions of SSID,PSWD,email-smtp-details
     - queue up HttpLogger service logging in case we're intermittently offline 
 */
 
@@ -25,15 +24,10 @@
 #include <WiFi101.h>
 #include "HttpLogger.h"
 #include "Logger.h"
-
-static const char *Progname = "Bouncy";
-
+#include "WifiCredStore.h"
 #include "arduino_secrets.h" 
-///////please enter your sensitive data in the Secret tab/arduino_secrets.h
-static const char ssid[] = SECRET_SSID;        // your network SSID (name)
-static const char pass[] = SECRET_PASS;    // your network password (use for WPA, or use as key for WEP)
-static const int keyIndex = 0;            // your network key Index number (needed only for WEP)
 
+#define PROGNAM "Bouncy"
 
 
 enum Runtype {PROD, test_PROD, test_ROUTER, test_IP, test_MODEM, test_DNS, test_BOUNCE_MODEM, test_BOUNCE_ROUTER, test_EMAIL};
@@ -55,7 +49,7 @@ static const IPAddress RouterIP(10, 0, 0, (sTest != test_ROUTER ? 1 : 111));
 static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
 static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
 
-
+static WifiCredStore WifiStore;
 
 
 static int sFailureCnt = 0;
@@ -169,6 +163,34 @@ void setup() {
     ; // wait for serial port to connect. Needed for native USB port only
   }
 
+  Serial.printf("\n\n");
+
+  WifiStore.begin();
+
+  char ssid[WifiCredStore::MAX_SSID_LEN + 1];
+  char pswd[WifiCredStore::MAX_PSWD_LEN + 1];
+  
+  if (WifiStore.load(ssid, sizeof(ssid), pswd, sizeof(pswd))) {
+    Serial.printf("INFO(%ld): Loaded WiFi credentials for SSID: %s\n", millis(), ssid);
+  } else {
+    if (sTest == PROD) {
+      Serial.printf("WARNING(%ld): No valid Wifi credentials available; TBD stand up the Access Point for provisioning\n", millis());
+    } else {
+      Serial.printf("WARNING(%ld): No valid WiFi credentials in flash\n", millis());
+
+      // DEVELOPMENT ONLY:
+      // If flash has no credentials, seed it from arduino_secrets.h.
+      // Remove this block before relying on real provisioning.
+      if (WifiStore.save(SECRET_SSID, SECRET_PASS)) {
+        Serial.printf("INFO(%ld): Saved WiFi credentials to flash\n", millis());
+        strcpy(ssid, SECRET_SSID);
+        strcpy(pswd, SECRET_PASS);
+      } else {
+        Serial.printf("ERROR(%ld): Failed to save WiFi credentials to flash\n", millis());
+      }
+    }
+  }
+
   // check for the presence of the shield:
   if (WiFi.status() == WL_NO_SHIELD) {
     Serial.printf("ERROR(%ld): WiFi shield not present; can't proceed.\n", millis());
@@ -177,15 +199,13 @@ void setup() {
     while (true);
   }
 
-  Serial.printf("\n\n");
-
   // attempt to connect to WiFi network:
   int wifi_status = WL_IDLE_STATUS;
   while (wifi_status != WL_CONNECTED) {
     Serial.printf("INFO(%ld): Attempting to connect to SSID: %s\n", millis(), ssid);
 
     // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
-    wifi_status = WiFi.begin(ssid, pass);
+    wifi_status = WiFi.begin(ssid, pswd);
 
     // wait 10 seconds for connection:
     delay(10000);
