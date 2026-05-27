@@ -14,15 +14,17 @@
   ToDo:
     - send email
     - provide blinking status indicator light
-    - find a way to headless-log
     - sleep mode between connectivity tests
     - find a way to persist the config stuff
     - provide access point for config stuff: definitions of SSID,PSWD,email-smtp-details
+    - queue up HttpLogger service logging in case we're intermittently offline 
 */
 
 
 #include <SPI.h>
 #include <WiFi101.h>
+#include "HttpLogger.h"
+#include "Logger.h"
 
 static const char *Progname = "Bouncy";
 
@@ -37,7 +39,7 @@ static const int keyIndex = 0;            // your network key Index number (need
 enum Runtype {PROD, test_PROD, test_ROUTER, test_IP, test_MODEM, test_DNS, test_BOUNCE_MODEM, test_BOUNCE_ROUTER, test_EMAIL};
 enum State {Initialize, Wait, Sleep, RouterPing, ModemPing, InternetPing, DnsPing};
 
-static const Runtype sTest = test_DNS;
+static const Runtype sTest = test_PROD;
 static State sState = Initialize;
 static State sStateAfterWait = Initialize;
 static long sWait_ms = 0;
@@ -49,6 +51,9 @@ static const IPAddress Internet(8,8,8,(sTest != test_IP ? 8 : 81));
 static const char *DNS = (sTest != test_DNS ? "google.com" : "google.comfoo");
 static const IPAddress ModemIP(192, 168, 100, (sTest != test_MODEM ? 1 : 111));
 static const IPAddress RouterIP(10, 0, 0, (sTest != test_ROUTER ? 1 : 111));
+
+static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
+static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
 
 
 
@@ -66,45 +71,45 @@ static const char *to_str(const char *s) {return s;}
 
 
 static void enableRouter(bool on) {
-  Serial.printf("WARNING(%ld): enableRouter not implemented yet...\n", millis());
+  Log.printf("WARNING(%ld): enableRouter not implemented yet...\n", millis());
   if (on) {
-    Serial.printf("INFO(%ld): enableRouter turn on\n", millis());
+    Log.printf("INFO(%ld): enableRouter turn on\n", millis());
   } else {
-    Serial.printf("INFO(%ld): enableRouter turn off\n", millis());
+    Log.printf("INFO(%ld): enableRouter turn off\n", millis());
   }
 }
 
 
 static void enableModem(bool on) {
-  Serial.printf("WARNING(%ld): enableModem not implemented yet...\n", millis());
+  Log.printf("WARNING(%ld): enableModem not implemented yet...\n", millis());
   if (on) {
-    Serial.printf("INFO(%ld): enableModem turn on\n", millis());
+    Log.printf("INFO(%ld): enableModem turn on\n", millis());
   } else {
-    Serial.printf("INFO(%ld): enableModem turn off\n", millis());
+    Log.printf("INFO(%ld): enableModem turn off\n", millis());
   }
 }
 
 
 static void bounce_modem() {
-  Serial.printf("WARNING(%ld): bouncing modem...\n", millis());
+  Log.printf("WARNING(%ld): bouncing modem...\n", millis());
   enableModem(false);
   delay(15*1000);
   enableModem(true);
   delay(210*1000);
-  Serial.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
+  Log.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
 }
 
 static void bounce_router() {
-  Serial.printf("WARNING(%ld): bouncing router...\n", millis());
+  Log.printf("WARNING(%ld): bouncing router...\n", millis());
   enableRouter(false);
   delay(15*1000);
   enableRouter(true);
   delay(210*1000);
-  Serial.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
+  Log.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
 }
 
 static void send_email(const char *msg) {
-  Serial.printf("WARNING(%ld): send_email not implemented yet (%s)\n", millis(), msg);
+  Log.printf("WARNING(%ld): send_email not implemented yet (%s)\n", millis(), msg);
 }
 
 
@@ -116,35 +121,33 @@ static void nextState(State nextState, long delay) {
 
 
 void printWiFiStatus() {
-  Serial.printf("INFO(%ld): Connected to wifi\n", millis());
+  Log.printf("INFO(%ld): Connected to wifi\n", millis());
 
   // print the SSID of the network you're attached to:
-  Serial.printf("INFO(%ld): SSID: %s\n", millis(), WiFi.SSID());
+  Log.printf("INFO(%ld): SSID: %s\n", millis(), WiFi.SSID());
 
   // print your WiFi shield's IP address:
-  IPAddress ip = WiFi.localIP();
-  Serial.printf("INFO(%ld): IP Address: ", millis());
-  Serial.println(ip);
+  Log.printf("INFO(%ld): IP Address: %s\n", millis(), to_str(WiFi.localIP()));
 
   // print the received signal strength:
   long rssi = WiFi.RSSI();
-  Serial.printf("INFO(%ld): signal strength (RSSI): %ld dBm\n\n", millis(), rssi);
+  Log.printf("INFO(%ld): signal strength (RSSI): %ld dBm\n\n", millis(), rssi);
 }
 
 
 static int ping_test(const char *devname, const char *ipstr, State thisState, State successState, void (*bounceFtor)()) {
-  Serial.printf("INFO(%ld): pinging %s @ %s\n", millis(), devname, ipstr);
+  Log.printf("INFO(%ld): pinging %s @ %s\n", millis(), devname, ipstr);
   if (WiFi.ping(ipstr) > 0) {
-    Serial.printf("INFO(%ld):: successful ping of %s @ %s\n", millis(), devname, ipstr);
+    Log.printf("INFO(%ld):: successful ping of %s @ %s\n", millis(), devname, ipstr);
     nextState(successState, 2*1000);
   } else {
     sFailureCnt++;
-    Serial.printf("ERROR(%ld): couldn't connect to %s @ %s (failure %d/%d)\n", millis(), devname, ipstr, sFailureCnt, NUM_FAILURES_TO_BOUNCE);
+    Log.printf("ERROR(%ld): couldn't connect to %s @ %s (failure %d/%d)\n", millis(), devname, ipstr, sFailureCnt, NUM_FAILURES_TO_BOUNCE);
     if (sFailureCnt < NUM_FAILURES_TO_BOUNCE) {
       nextState(thisState, 60*1000);
     } else {
       // all tries exhausted...  have to bounce the device
-      Serial.printf("WARNING(%ld): All %s tries exhausted; bouncing %s...\n", millis(), devname, devname);
+      Log.printf("WARNING(%ld): All %s tries exhausted; bouncing %s...\n", millis(), devname, devname);
       bounceFtor();
       sFailureCnt = 0;
       nextState(Initialize, 1*1000);
@@ -187,6 +190,8 @@ void setup() {
     // wait 10 seconds for connection:
     delay(10000);
   }
+  sHttpLog.set_wifi_available(); // now all logging can go thru the Log facace
+
   printWiFiStatus();
 
   // consider testing mode: should one of the addresses be perturbed, or directly trigger something
@@ -203,7 +208,7 @@ void setup() {
   } else if (sTest == test_BOUNCE_ROUTER) {
     bounce_router();
   } else if (sTest == test_EMAIL) {      
-    Serial.printf("INFO(%ld): %s testing email delivery\n", millis(), "foo");
+    Log.printf("INFO(%ld): %s testing email delivery\n", millis(), "foo");
     send_email("testing email");
   }
 
@@ -231,7 +236,7 @@ void loop() {
       ping_test("dns", DNS, DnsPing, Sleep, bounce_modem);
       break;
     case Sleep: 
-      Serial.printf("INFO(%ld): sleeping until next check in %d mins\n", millis(), TIME_BETWEEN_MONITOR_ATTEMPTS_ms/1000/60);
+      Log.printf("INFO(%ld): sleeping until next check in %d mins\n", millis(), TIME_BETWEEN_MONITOR_ATTEMPTS_ms/1000/60);
       nextState(Initialize, TIME_BETWEEN_MONITOR_ATTEMPTS_ms);
       sFailureCnt = 0;
       break;
