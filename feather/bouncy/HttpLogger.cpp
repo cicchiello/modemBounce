@@ -22,7 +22,7 @@ bool HttpLogger::println(const char *line) {
 }
 
 bool HttpLogger::printf(const char *fmt, ...) {
-  char buf[256];
+  char buf[256]; // needs its own buffer
 
   va_list args;
   va_start(args, fmt);

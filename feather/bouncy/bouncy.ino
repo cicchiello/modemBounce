@@ -14,7 +14,6 @@
   ToDo:
     - send email
     - provide blinking status indicator light
-    - queue up HttpLogger service logging in case we're intermittently offline 
 */
 
 
@@ -22,14 +21,15 @@
 #include <WiFi101.h>
 #include "HttpLogger.h"
 #include "Logger.h"
-#include "WifiCredStore.h"
-#include "Provision.h"
+#include "Connector.h"
 #include "arduino_secrets.h" 
 
 #define PROGNAM "Bouncy"
 
 
-enum Runtype {PROD, test_PROD, test_ROUTER, test_IP, test_MODEM, test_DNS, test_BOUNCE_MODEM, test_BOUNCE_ROUTER, test_EMAIL};
+enum Runtype {
+  PROD, test_PROD, test_ROUTER, test_IP, test_MODEM, test_DNS, test_BOUNCE_MODEM, test_BOUNCE_ROUTER, test_EMAIL
+};
 enum State {Initialize, Wait, Sleep, RouterPing, ModemPing, InternetPing, DnsPing};
 
 static const Runtype sTest = test_PROD;
@@ -48,19 +48,21 @@ static const IPAddress RouterIP(10, 0, 0, (sTest != test_ROUTER ? 1 : 111));
 static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
 static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
 
-static WifiCredStore sWifiStore;
-
 
 static int sFailureCnt = 0;
 
 
-static const char *to_str(const IPAddress &ip) {
+static const char *to_str(const IPAddress &ip)
+{
   static char buf[20];
   sprintf(buf, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
   return buf;
 }
 
-static const char *to_str(const char *s) {return s;}
+static const char *to_str(const char *s)
+{
+  return s;
+}
 
 
 static void enableRouter(bool on) {
@@ -135,7 +137,8 @@ static int ping_test(const char *devname, const char *ipstr, State thisState, St
     nextState(successState, 2*1000);
   } else {
     sFailureCnt++;
-    Log.printf("WARNING(%ld): couldn't connect to %s @ %s (failure %d/%d)\n", millis(), devname, ipstr, sFailureCnt, NUM_FAILURES_TO_BOUNCE);
+    Log.printf("WARNING(%ld): couldn't connect to %s @ %s (failure %d/%d)\n",
+               millis(), devname, ipstr, sFailureCnt, NUM_FAILURES_TO_BOUNCE);
     if (sFailureCnt < NUM_FAILURES_TO_BOUNCE) {
       Log.printf("INFO(%ld): retrying in 60s...\n", millis());
       nextState(thisState, 60*1000);
@@ -148,35 +151,6 @@ static int ping_test(const char *devname, const char *ipstr, State thisState, St
     }
   }
   return 0;
-}
-
-
-bool connectUsingStoredCredentials(WifiCredStore &wifiStore, char *ssid, char *pswd) {
-  if (!wifiStore.load(ssid, WifiCredStore::MAX_SSID_LEN + 1, pswd, WifiCredStore::MAX_PSWD_LEN + 1)) {
-    Serial.printf("INFO(%ld): No valid WiFi credentials in flash\n", millis());
-    return false;
-  }
-
-  Serial.printf("INFO(%ld): Trying WiFi SSID: %s\n", millis(), ssid);
-
-  int status = WiFi.begin(ssid, pswd);
-
-  unsigned long deadline = millis() + 20000;
-
-  while (status != WL_CONNECTED && millis() < deadline) {
-    delay(500);
-    status = WiFi.status();
-  }
-
-  if (status == WL_CONNECTED) {
-    Serial.printf("INFO(%ld): WiFi connected\n", millis());
-    return true;
-  }
-
-  Serial.printf("WARNING(%ld): WiFi connect failed\n", millis());
-  WiFi.end();
-  delay(1000);
-  return false;
 }
 
 
@@ -196,51 +170,20 @@ void setup() {
 
   // check for the presence of the shield:
   if (WiFi.status() == WL_NO_SHIELD) {
-    Serial.printf("ERROR(%ld): WiFi shield not present; can't proceed.\n", millis());
+    Log.printf("FATAL(%ld): WiFi shield not present; can't proceed.\n", millis());
 
     // can't/don't continue:
     while (true);
   }
 
-  sWifiStore.begin();
-
-  char ssid[WifiCredStore::MAX_SSID_LEN + 1];
-  char pswd[WifiCredStore::MAX_PSWD_LEN + 1];
-
-  if (sTest == PROD) {
-    bool connected = connectUsingStoredCredentials(sWifiStore, ssid, pswd);
-    while (!connected) {
-      Provision provision(sWifiStore, Log);
-
-      if (!provision.runFlow()) {
-        Serial.printf("ERROR(%ld): Provisioning failed to start\n", millis());
-        delay(5000);
-        continue;
-      }
-
-      connected = connectUsingStoredCredentials(sWifiStore, ssid, pswd);
-      if (!connected) {
-        Serial.println("Provisioned credentials did not work; clearing flash");
-        sWifiStore.clear();
-        delay(1000);
-      }
-    }
+  Connector connector(Log);
+  if (sTest == test_PROD) {
+    connector.connectUsingStoredCreds();
   } else {
-    strcpy(ssid, SECRET_SSID);
-    strcpy(pswd, SECRET_PASS);
-
-    // attempt to connect to WiFi network:
-    int wifi_status = WL_IDLE_STATUS;
-    while (wifi_status != WL_CONNECTED) {
-      Serial.printf("INFO(%ld): Attempting to connect to SSID: %s\n", millis(), ssid);
-
-      // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
-      wifi_status = WiFi.begin(ssid, pswd);
-
-      // wait 10 seconds for connection:
-      delay(10000);
-    }
+    // attempt to connect to WiFi network using secret creds
+    connector.connectWithCreds(SECRET_SSID, SECRET_PASS);
   }
+  // control will only return if connected
 
   
   WiFi.maxLowPowerMode();
@@ -295,6 +238,7 @@ void loop() {
       sFailureCnt = 0;
       break;
     case Wait: 
+      Log.flush();
       delay(1);
       if (--sWait_ms == 0) {
         sState = sStateAfterWait;
@@ -304,6 +248,4 @@ void loop() {
   }
 
 }
-
-
 
