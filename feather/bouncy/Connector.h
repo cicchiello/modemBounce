@@ -11,6 +11,8 @@ class Connector {
   void connectUsingStoredCreds();
   void connectWithCreds(const char *ssid, const char *pswd);
 
+  void factoryReset();
+  
  private:
   Logger &mLogger;
 };

@@ -14,6 +14,7 @@
   ToDo:
     - send email
     - provide blinking status indicator light
+    - need a factory-reset button that clears the WifiCredStore
 */
 
 
@@ -116,8 +117,6 @@ static void nextState(State nextState, long delay) {
 
 
 void printWiFiStatus() {
-  Log.printf("INFO(%ld): Connected to wifi\n", millis());
-
   // print the SSID of the network you're attached to:
   Log.printf("INFO(%ld): SSID: %s\n", millis(), WiFi.SSID());
 

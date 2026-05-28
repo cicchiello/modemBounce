@@ -47,6 +47,47 @@ void Connector::connectUsingStoredCreds() {
   char ssid[WifiCredStore::MAX_SSID_LEN + 1];
   char pswd[WifiCredStore::MAX_PSWD_LEN + 1];
 
+  while (true) {
+    if (!sWifiStore.load(ssid, sizeof(ssid), pswd, sizeof(pswd))) {
+      mLogger.printf("WARNING(%ld): No stored WiFi credentials; entering provisioning mode\n", millis());
+
+      Provision provision(sWifiStore, mLogger);
+      if (!provision.runFlow()) {
+        mLogger.printf("ERROR(%ld): Provisioning failed to start\n", millis());
+        delay(5000);
+      }
+
+      // Whether provisioning succeeded or failed, loop back and re-check flash.
+      continue;
+    }
+
+    mLogger.printf("INFO(%ld): Stored WiFi credentials found for SSID: %s\n", millis(), ssid);
+
+    if (attempt(sWifiStore, ssid, pswd, mLogger)) {
+      return;
+    }
+
+    mLogger.printf("WARNING(%ld): WiFi connect failed with stored credentials; will retry\n", millis());
+
+    WiFi.disconnect();
+    delay(10000);
+  }
+}
+
+
+void Connector::factoryReset() 
+{
+  sWifiStore.clear();
+  delay(1000);
+  mLogger.printf("INFO(%ld): Cleared provisioned credentials; next reset will require Provisioning\n", millis());
+}
+
+
+#ifdef HIDE
+void Connector::connectUsingStoredCreds() {
+  char ssid[WifiCredStore::MAX_SSID_LEN + 1];
+  char pswd[WifiCredStore::MAX_PSWD_LEN + 1];
+
   bool connected = attempt(sWifiStore, ssid, pswd, mLogger);
   while (!connected) {
     Provision provision(sWifiStore, mLogger);
@@ -64,6 +105,7 @@ void Connector::connectUsingStoredCreds() {
     }
   }
 }
+#endif
 
 
 void Connector::connectWithCreds(const char *ssid, const char *pswd) 
