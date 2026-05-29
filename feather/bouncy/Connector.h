@@ -1,12 +1,13 @@
 #pragma once
 
 // forward declarations
+class IndicatorLED;
 class Logger;
 
 
 class Connector {
  public:
-  Connector(Logger &logger);
+  Connector(IndicatorLED &rgb, Logger &logger);
 
   void connectUsingStoredCreds();
   void connectWithCreds(const char *ssid, const char *pswd);
@@ -15,4 +16,5 @@ class Connector {
   
  private:
   Logger &mLogger;
+  IndicatorLED &mRGB;
 };

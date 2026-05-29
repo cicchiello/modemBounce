@@ -2,6 +2,7 @@
 
 #include <WiFi101.h>
 #include "WifiCredStore.h"
+#include "Indicator.h"
 #include "Logger.h"
 
 
@@ -270,8 +271,8 @@ static bool handleProvisioningClient(WiFiClient &client, WifiCredStore &wifiStor
 
 
 
-Provision::Provision(WifiCredStore &wifiStore, Logger &logger)
-  : mWifiStore(wifiStore), mLogger(logger)
+Provision::Provision(WifiCredStore &wifiStore, IndicatorLED &rgb, Logger &logger)
+  : mWifiStore(wifiStore), mRGB(rgb), mLogger(logger)
 {
 }
 
@@ -279,6 +280,9 @@ Provision::Provision(WifiCredStore &wifiStore, Logger &logger)
 bool Provision::runFlow() {
   mLogger.printf("INFO(%ld): Starting AP for provisioning...\n", millis());
 
+  mRGB.off();
+  mRGB.setRed(true);
+  
   int apStatus = WiFi.beginAP("Bouncy-Setup");
 
   if (apStatus != WL_AP_LISTENING) {
@@ -301,28 +305,38 @@ bool Provision::runFlow() {
   mLogger.printf("INFO(%ld): Open http://%s/\n", millis(), ipstr);
 
   bool saved = false;
-
   while (!saved) {
     WiFiClient client = ProvisionServer.available();
 
     if (!client) {
-      delay(10);
+      mRGB.toggleRed();
+      delay(50);
+      mRGB.toggleRed();
+      delay(50);
       continue;
     }
 
     saved = handleProvisioningClient(client, mWifiStore);
 
-    delay(10);
+    mRGB.toggleRed();
+    delay(50);
+    mRGB.toggleRed();
+    delay(50);
+    
     client.stop();
 
     if (saved) {
       mLogger.printf("INFO(%ld): credentials saved\n", millis());
+      mRGB.setRed(false);
+      mRGB.setBlue(true);
     }
   }
 
   // Leave AP mode before caller tries station mode.
   WiFi.end();
-  delay(1000);
+  
+  // pause for 1s while Wifi settles
+  delay(10000);
 
   return true;
 }

@@ -13,8 +13,8 @@
 
   ToDo:
     - send email
-    - provide blinking status indicator light
-    - need a factory-reset button that clears the WifiCredStore
+    - toggle GPIO for modem and router SSRs 
+
 */
 
 
@@ -23,6 +23,7 @@
 #include "HttpLogger.h"
 #include "Logger.h"
 #include "Connector.h"
+#include "Indicator.h"
 #include "arduino_secrets.h" 
 
 #define PROGNAM "Bouncy"
@@ -33,7 +34,7 @@ enum Runtype {
 };
 enum State {Initialize, Wait, Sleep, RouterPing, ModemPing, InternetPing, DnsPing};
 
-static const Runtype sTest = test_PROD;
+static const Runtype sTest = PROD;
 static State sState = Initialize;
 static State sStateAfterWait = Initialize;
 static long sWait_ms = 0;
@@ -49,6 +50,10 @@ static const IPAddress RouterIP(10, 0, 0, (sTest != test_ROUTER ? 1 : 111));
 static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
 static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
 
+static const uint8_t FACTORY_RESET_PIN = A5;
+static const unsigned long FACTORY_RESET_HOLD_MS = 5000;
+
+static IndicatorLED sRGB;
 
 static int sFailureCnt = 0;
 
@@ -88,19 +93,53 @@ static void enableModem(bool on) {
 
 static void bounce_modem() {
   Log.printf("WARNING(%ld): bouncing modem...\n", millis());
+
+  bool redState = sRGB.getRed();
+  bool greenState = sRGB.getGreen();
+  bool blueState = sRGB.getBlue();
+  sRGB.off();
+  sRGB.setRed(true);
+
   enableModem(false);
-  delay(15*1000);
+  
+  // leave off for 15 seconds
+  delay(15000);
+  
   enableModem(true);
-  delay(210*1000);
+  
+  // wait for 210s while modem initializes
+  delay(210000);
+  
+  sRGB.setRed(redState);
+  sRGB.setGreen(greenState);
+  sRGB.setBlue(blueState);
+  
   Log.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
 }
 
 static void bounce_router() {
   Log.printf("WARNING(%ld): bouncing router...\n", millis());
+
+  bool redState = sRGB.getRed();
+  bool greenState = sRGB.getGreen();
+  bool blueState = sRGB.getBlue();
+  sRGB.off();  
+  sRGB.setRed(true);
+
   enableRouter(false);
-  delay(15*1000);
+  
+  // leave off for 15 seconds
+  delay(15000);
+  
   enableRouter(true);
-  delay(210*1000);
+  
+  // wait for 210s while router initializes
+  delay(210000);
+  
+  sRGB.setRed(redState);
+  sRGB.setGreen(greenState);
+  sRGB.setBlue(blueState);
+
   Log.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
 }
 
@@ -153,36 +192,85 @@ static int ping_test(const char *devname, const char *ipstr, State thisState, St
 }
 
 
+static bool checkFactoryResetButton() {
+  pinMode(FACTORY_RESET_PIN, INPUT_PULLUP);
+
+  // Let the pin settle after reset.
+  delay(20);
+
+  unsigned long start = millis();
+
+  Log.printf("INFO(%ld): Reset button held; considering factory-reset\n", millis());
+
+  while (digitalRead(FACTORY_RESET_PIN) == LOW) {
+    unsigned long held = millis() - start;
+
+    if (held >= FACTORY_RESET_HOLD_MS) {
+      Log.printf("WARNING(%ld): Factory reset requested\n", millis());
+
+      // Wait for release before continuing, so the button press
+      // does not immediately trigger another reset cycle.
+      while (digitalRead(FACTORY_RESET_PIN) == LOW) {
+        delay(50);
+        sRGB.toggleRed();
+      }
+      sRGB.setRed(false);
+
+      delay(100);
+      return true;
+    }
+
+    delay(20);
+  }
+
+  Log.printf("INFO(%ld): Reset button released before factory-reset timeout\n", millis());
+  return false;
+}
+
+
+
+
+
+
 void setup() {
   //Configure pins for Adafruit ATWINC1500 Feather
   WiFi.setPins(8,7,4,2);
 
   sState = Initialize;
 
-  //Initialize serial and wait for port to open:
-  Serial.begin(9600);
-  while (!Serial) {
-    ; // wait for serial port to connect. Needed for native USB port only
+  bool factoryResetEnabled = checkFactoryResetButton();
+
+  if ((Log.getMode() == LOG_TO_BOTH) || (Log.getMode() == LOG_TO_SERIAL)) {
+    //Initialize serial and wait for port to open:
+    Serial.begin(9600);
+    while (!Serial) {
+      ; // wait for serial port to connect. Needed for native USB port only
+    }
+
+    Serial.printf("\n\n");
   }
 
-  Serial.printf("\n\n");
 
   // check for the presence of the shield:
   if (WiFi.status() == WL_NO_SHIELD) {
     Log.printf("FATAL(%ld): WiFi shield not present; can't proceed.\n", millis());
 
     // can't/don't continue:
-    while (true);
+    while (true) {}
   }
 
-  Connector connector(Log);
-  if (sTest == test_PROD) {
+  Connector connector(sRGB, Log);
+  if (sTest == PROD) {
+    if (factoryResetEnabled) {
+      connector.factoryReset();
+    }
     connector.connectUsingStoredCreds();
   } else {
     // attempt to connect to WiFi network using secret creds
     connector.connectWithCreds(SECRET_SSID, SECRET_PASS);
   }
   // control will only return if connected
+  sRGB.setGreen(true);
 
   
   WiFi.maxLowPowerMode();

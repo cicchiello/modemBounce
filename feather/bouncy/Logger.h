@@ -18,6 +18,10 @@ public:
     _mode = mode;
   }
 
+  LogMode getMode() const {
+    return _mode;
+  }
+
   void println(const char *line);
 
   void printf(const char *fmt, ...);
