@@ -12,8 +12,10 @@
   Copyright Joe Cicchiello 2026
 
   ToDo:
-    - send email
     - toggle GPIO for modem and router SSRs 
+    - define and print enclosure
+    - adjust current-limit resistor
+    - wire up and install circuit
 
 */
 
@@ -24,9 +26,10 @@
 #include "Logger.h"
 #include "Connector.h"
 #include "Indicator.h"
+#include "EmailRelay.h"
 #include "arduino_secrets.h" 
 
-#define PROGNAM "Bouncy"
+#define PROGNAME "Bouncy"
 
 
 enum Runtype {
@@ -34,7 +37,7 @@ enum Runtype {
 };
 enum State {Initialize, Wait, Sleep, RouterPing, ModemPing, InternetPing, DnsPing};
 
-static const Runtype sTest = PROD;
+static const Runtype sTest = test_EMAIL;
 static State sState = Initialize;
 static State sStateAfterWait = Initialize;
 static long sWait_ms = 0;
@@ -91,6 +94,20 @@ static void enableModem(bool on) {
 }
 
 
+static void send_email(const char *reason) {
+  Log.printf("WARNING(%ld): connectivity failure detected(%s); preparing an email...\n", millis(), reason);
+  
+  EmailRelay Mailer(EMAIL_HOST, EMAIL_PORT, EMAIL_PATH, SECRET_EMAIL_KEY);
+  Mailer.begin();
+
+  char subject[30];
+  sprintf(subject, "ALERT %s", PROGNAME);
+  if (!Mailer.send(subject, reason)) {
+    Log.printf("ERROR(%ld): EmailRelay failed\n", millis());
+  } 
+}
+
+
 static void bounce_modem() {
   Log.printf("WARNING(%ld): bouncing modem...\n", millis());
 
@@ -110,10 +127,13 @@ static void bounce_modem() {
   // wait for 210s while modem initializes
   delay(210000);
   
+  send_email("modem failure");
+  delay(30000);
+  
   sRGB.setRed(redState);
   sRGB.setGreen(greenState);
   sRGB.setBlue(blueState);
-  
+
   Log.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
 }
 
@@ -136,17 +156,15 @@ static void bounce_router() {
   // wait for 210s while router initializes
   delay(210000);
   
+  send_email("router failure");
+  delay(30000);
+  
   sRGB.setRed(redState);
   sRGB.setGreen(greenState);
   sRGB.setBlue(blueState);
 
   Log.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
 }
-
-static void send_email(const char *msg) {
-  Log.printf("WARNING(%ld): send_email not implemented yet (%s)\n", millis(), msg);
-}
-
 
 static void nextState(State nextState, long delay) {
   sStateAfterWait = nextState;
@@ -292,7 +310,7 @@ void setup() {
   } else if (sTest == test_BOUNCE_ROUTER) {
     bounce_router();
   } else if (sTest == test_EMAIL) {      
-    Log.printf("INFO(%ld): %s testing email delivery\n", millis(), "foo");
+    Log.printf("INFO(%ld): testing email delivery\n", millis());
     send_email("testing email");
   }
 
