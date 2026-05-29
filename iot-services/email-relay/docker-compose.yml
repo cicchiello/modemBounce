@@ -1,0 +1,26 @@
+services:
+  email-relay:
+    build: .
+    container_name: email-relay
+    restart: unless-stopped
+
+    ports:
+      - "10.0.0.214:8093:8093"
+
+    environment:
+      PORT: "8093"
+      SHARED_KEY: "${SHARED_KEY}"
+
+      SMTP_HOST: "${SMTP_HOST}"
+      SMTP_PORT: "${SMTP_PORT}"
+      SMTP_STARTTLS: "${SMTP_STARTTLS}"
+      SMTP_USER: "${SMTP_USER}"
+      SMTP_PASS: "${SMTP_PASS}"
+
+      MAIL_FROM: "${MAIL_FROM}"
+      MAIL_TO: "${MAIL_TO}"
+      SUBJECT_PREFIX: "${SUBJECT_PREFIX}"
+
+      MAX_BODY_BYTES: "4096"
+      MAX_SUBJECT_CHARS: "120"
+      MAX_MESSAGE_CHARS: "2000"
