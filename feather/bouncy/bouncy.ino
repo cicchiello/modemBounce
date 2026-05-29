@@ -37,7 +37,7 @@ enum Runtype {
 };
 enum State {Initialize, Wait, Sleep, RouterPing, ModemPing, InternetPing, DnsPing};
 
-static const Runtype sTest = test_EMAIL;
+static const Runtype sTest = PROD;
 static State sState = Initialize;
 static State sStateAfterWait = Initialize;
 static long sWait_ms = 0;
