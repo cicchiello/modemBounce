@@ -4,9 +4,9 @@
 #include <stdint.h>
 
 
-static const uint8_t LED_R_PIN = A4;
-static const uint8_t LED_G_PIN = A1;
-static const uint8_t LED_B_PIN = A2;
+static const uint8_t LED_R_PIN = A3;
+static const uint8_t LED_G_PIN = A0;
+static const uint8_t LED_B_PIN = A1;
 
 IndicatorLED::IndicatorLED()
 {

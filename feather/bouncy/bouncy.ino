@@ -12,9 +12,8 @@
   Copyright Joe Cicchiello 2026
 
   ToDo:
-    - toggle GPIO for modem and router SSRs 
+    - consider OTA updates (mostly to enable testing in-circuit, but could change behavior later)
     - define and print enclosure
-    - adjust current-limit resistor
     - wire up and install circuit
 
 */
@@ -53,9 +52,11 @@ static const IPAddress RouterIP(10, 0, 0, (sTest != test_ROUTER ? 1 : 111));
 static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
 static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
 
-static const uint8_t FACTORY_RESET_PIN = A5;
+static const uint8_t FACTORY_RESET_PIN = 6;
 static const unsigned long FACTORY_RESET_HOLD_MS = 5000;
 
+static const uint8_t MODEM_SSR_PIN = A5;
+static const uint8_t ROUTER_SSR_PIN = 5;
 static IndicatorLED sRGB;
 
 static int sFailureCnt = 0;
@@ -75,21 +76,23 @@ static const char *to_str(const char *s)
 
 
 static void enableRouter(bool on) {
-  Log.printf("WARNING(%ld): enableRouter not implemented yet...\n", millis());
   if (on) {
     Log.printf("INFO(%ld): enableRouter turn on\n", millis());
+    digitalWrite(ROUTER_SSR_PIN, LOW);  // SSR is normally-closed, so LOW releases it to close
   } else {
     Log.printf("INFO(%ld): enableRouter turn off\n", millis());
+    digitalWrite(ROUTER_SSR_PIN, HIGH);  // SSR is normally-closed, so HIGH drives it to open
   }
 }
 
 
 static void enableModem(bool on) {
-  Log.printf("WARNING(%ld): enableModem not implemented yet...\n", millis());
   if (on) {
     Log.printf("INFO(%ld): enableModem turn on\n", millis());
+    digitalWrite(MODEM_SSR_PIN, LOW);  // SSR is normally-closed, so LOW releases it to close
   } else {
     Log.printf("INFO(%ld): enableModem turn off\n", millis());
+    digitalWrite(MODEM_SSR_PIN, HIGH);  // SSR is normally-closed, so HIGH drives it to open
   }
 }
 
@@ -253,6 +256,11 @@ static bool checkFactoryResetButton() {
 void setup() {
   //Configure pins for Adafruit ATWINC1500 Feather
   WiFi.setPins(8,7,4,2);
+
+  pinMode(MODEM_SSR_PIN, OUTPUT);
+  digitalWrite(MODEM_SSR_PIN, LOW);
+  pinMode(ROUTER_SSR_PIN, OUTPUT);
+  digitalWrite(ROUTER_SSR_PIN, LOW);
 
   sState = Initialize;
 
