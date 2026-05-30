@@ -304,6 +304,8 @@ void setup() {
 
   printWiFiStatus();
 
+  send_email("bouncy reset");
+
   // consider testing mode: should one of the addresses be perturbed, or directly trigger something
   if (sTest == test_ROUTER) {
     // RouterIP is already set to *.*.*.111
