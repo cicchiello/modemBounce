@@ -6,8 +6,11 @@
 #include "HttpLogger.h"
 #include <stddef.h>
 
-static const size_t LOG_QUEUE_DEPTH = 32;
-static const size_t LOG_LINE_MAX = 160;
+static const size_t LOG_QUEUE_DEPTH = 128;
+static const size_t LOG_LINE_MAX = 90;
+
+static const char *CLIP_STR = "...\n";
+static const int CLIP_LEN = strlen(CLIP_STR)+2;
 
 
 static void _LogAssertFunc(const char *msg, const char *file, int line)
@@ -74,11 +77,13 @@ static void popOldest() {
 
 
 static void enqueue(const char *line) {
+  LogAssert(strlen(line) > LOG_LINE_MAX - CLIP_LEN, "log line too long...", __FILE__, __LINE__);
+  
   if (_count == LOG_QUEUE_DEPTH) {
     popOldest();
     _dropped++;
   }
- 
+
   strncpy(_queue[_tail], line, LOG_LINE_MAX - 1);
   _queue[_tail][LOG_LINE_MAX - 1] = '\0';
   
@@ -115,41 +120,66 @@ static void logHttpOrQueue(Logger *logger, HttpLogger *httpLogger, const char *l
 
 
 void Logger::println(const char *line) {
+  LogAssert(!SharedScratchBuf::isInUse(), "Logger::println", __FILE__, __LINE__);
+  SharedScratchBuf buf(__FILE__, __LINE__);
+  
   LogAssert(line[strlen(line)-1] != '\n', "line is CR-terminated", __FILE__, __LINE__);
     
+  if (strlen(line) > LOG_LINE_MAX - CLIP_LEN) {
+    Serial.println("log line too long...");
+    strncpy(buf.c_str(), line, LOG_LINE_MAX - CLIP_LEN);
+    buf.c_str()[LOG_LINE_MAX - CLIP_LEN] = '\0';
+    strcat(buf.c_str(), CLIP_STR);
+    if (_mode == LOG_TO_HTTP || _mode == LOG_TO_BOTH) {
+      strcat(buf.c_str(), "\n");
+    }
+  } else {
+    strcpy(buf.c_str(), line);
+  }
+
   if (_mode == LOG_TO_SERIAL || _mode == LOG_TO_BOTH) {
-    Serial.println(line);
+    Serial.println(buf.c_str());
   }
   
   if (_mode == LOG_TO_HTTP || _mode == LOG_TO_BOTH) {
-    LogAssert(!SharedScratchBuf::isInUse(), "Logger::println", __FILE__, __LINE__);
-    SharedScratchBuf buf(__FILE__, __LINE__);
-    sprintf(buf.c_str(), "%s\n", line);
     logHttpOrQueue(this, _httpLogger, buf.c_str());
   }
 }
 
 
 void Logger::printf(const char *fmt, ...) {
-  char buf[LOG_LINE_MAX];  // needs its own buffer
+  char line[LOG_LINE_MAX];  // needs its own buffer
   va_list args;
   va_start(args, fmt);
-  vsnprintf(buf, sizeof(buf), fmt, args);
+  vsnprintf(line, sizeof(line), fmt, args);
   va_end(args);
   
-  LogAssert(buf[strlen(buf)-1] == '\n', "line isn't CR-terminated", __FILE__, __LINE__);
+  LogAssert(line[strlen(line)-1] == '\n', "line isn't CR-terminated", __FILE__, __LINE__);
+  
+  if (strlen(line) > LOG_LINE_MAX - CLIP_LEN) {
+    LogAssert(!SharedScratchBuf::isInUse(), "Logger::println", __FILE__, __LINE__);
+    SharedScratchBuf buf(__FILE__, __LINE__);
+    Serial.println("log line too long...");
+    strncpy(buf.c_str(), line, LOG_LINE_MAX - CLIP_LEN);
+    buf.c_str()[LOG_LINE_MAX - CLIP_LEN] = '\0';
+    strcat(buf.c_str(), CLIP_STR);
+    strcat(buf.c_str(), "\n");
+    strcpy(line, buf.c_str());
+  }
+
+  LogAssert(line[strlen(line)-1] == '\n', "line isn't CR-terminated", __FILE__, __LINE__);
   
   if (_mode == LOG_TO_SERIAL || _mode == LOG_TO_BOTH) {
     // Serial.printf's buffer for formatting is small, so let's force use of println
-    buf[strlen(buf)-1] = 0;  // I already know it's '\n', so terminate properly for println
-    Serial.println(buf);
-    buf[strlen(buf)] = '\n'; // put back the '\n'
-    buf[strlen(buf)] = 0;    // just in case
+    line[strlen(line)-1] = 0;  // I already know it's '\n', so terminate properly for println
+    Serial.println(line);
+    line[strlen(line)] = '\n'; // put back the '\n'
+    line[strlen(line)] = 0;    // just in case
   }
   
   if (_mode == LOG_TO_HTTP || _mode == LOG_TO_BOTH) {
     LogAssert(!SharedScratchBuf::isInUse(), "Logger::printf", __FILE__, __LINE__);
-    logHttpOrQueue(this, _httpLogger, buf);
+    logHttpOrQueue(this, _httpLogger, line);
   }
 }
 

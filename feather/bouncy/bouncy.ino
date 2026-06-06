@@ -31,23 +31,20 @@
 #define PROGNAME "Bouncy"
 
 
-enum Runtype {
-  PROD, test_PROD, test_ROUTER, test_IP, test_MODEM, test_DNS, test_BOUNCE_MODEM, test_BOUNCE_ROUTER, test_EMAIL
-};
-enum State {Initialize, Wait, Sleep, RouterPing, ModemPing, InternetPing, DnsPing};
+enum State {Initialize, Wait, Sleep, APConnect, RouterPing, ModemPing, InternetPing, DnsPing};
 
-static const Runtype sTest = PROD;
+static Runtype sTest = PROD;
 static State sState = Initialize;
 static State sStateAfterWait = Initialize;
 static long sWait_ms = 0;
 
-#define TIME_BETWEEN_MONITOR_ATTEMPTS_ms (sTest == PROD ? 30*60*1000 : 3*60*1000) 
+#define TIME_BETWEEN_MONITOR_ATTEMPTS_ms (sTest == PROD ? 30*60*1000 : 2*60*1000) 
 #define NUM_FAILURES_TO_BOUNCE (sTest == PROD ? 5 : 3)
 
-static const IPAddress Internet(8,8,8,(sTest != test_IP ? 8 : 81));
-static const char *DNS = (sTest != test_DNS ? "google.com" : "google.comfoo");
-static const IPAddress ModemIP(192, 168, 100, (sTest != test_MODEM ? 1 : 111));
-static const IPAddress RouterIP(10, 0, 0, (sTest != test_ROUTER ? 1 : 111));
+static const IPAddress Internet() {return IPAddress(8,8,8,(sTest != test_IP ? 8 : 81));}
+static const char *DNS() {return sTest != test_DNS ? "google.com" : "google.comfoo";}
+static const IPAddress ModemIP() {return IPAddress(192,168,100, (sTest != test_MODEM ? 1 : 111));}
+static const IPAddress RouterIP() {return IPAddress(10,0,0, (sTest != test_ROUTER ? 1 : 111));}
 
 static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
 static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
@@ -59,7 +56,10 @@ static const uint8_t MODEM_SSR_PIN = A5;
 static const uint8_t ROUTER_SSR_PIN = 5;
 static IndicatorLED sRGB;
 
+static Connector sConnector(sRGB, Log);
+
 static int sFailureCnt = 0;
+static const char *sPendingEmail = NULL;
 
 
 static const char *to_str(const IPAddress &ip)
@@ -97,8 +97,22 @@ static void enableModem(bool on) {
 }
 
 
+static void send_reset_email() {
+  Log.printf("WARNING(%ld): system restarted; sending an email...\n", millis());
+  
+  EmailRelay Mailer(EMAIL_HOST, EMAIL_PORT, EMAIL_PATH, SECRET_EMAIL_KEY);
+  Mailer.begin();
+
+  char subject[30];
+  sprintf(subject, "ALERT %s", PROGNAME);
+  if (!Mailer.send(subject, "system restarted")) {
+    Log.printf("ERROR(%ld): EmailRelay failed\n", millis());
+  } 
+}
+
+
 static void send_email(const char *reason) {
-  Log.printf("WARNING(%ld): connectivity failure detected(%s); preparing an email...\n", millis(), reason);
+  Log.printf("WARNING(%ld): failure detected(%s); sending an email...\n", millis(), reason);
   
   EmailRelay Mailer(EMAIL_HOST, EMAIL_PORT, EMAIL_PATH, SECRET_EMAIL_KEY);
   Mailer.begin();
@@ -128,16 +142,16 @@ static void bounce_modem() {
   enableModem(true);
   
   // wait for 210s while modem initializes
+  Log.printf("INFO(%ld): waiting 3 minutes for modem initialization...\n", millis());
   delay(210000);
-  
-  send_email("modem failure");
-  delay(30000);
-  
+
+  sPendingEmail = "modem failure";
+
   sRGB.setRed(redState);
   sRGB.setGreen(greenState);
   sRGB.setBlue(blueState);
 
-  Log.printf("INFO(%ld): continuing with normal operations after bouncing router...\n", millis());
+  Log.printf("INFO(%ld): continuing with normal operations after bouncing modem...\n", millis());
 }
 
 static void bounce_router() {
@@ -157,10 +171,10 @@ static void bounce_router() {
   enableRouter(true);
   
   // wait for 210s while router initializes
+  Log.printf("INFO(%ld): waiting 3 minuites for router initialization...\n", millis());
   delay(210000);
   
-  send_email("router failure");
-  delay(30000);
+  sPendingEmail = "router failure";
   
   sRGB.setRed(redState);
   sRGB.setGreen(greenState);
@@ -190,10 +204,11 @@ void printWiFiStatus() {
 
 
 static int ping_test(const char *devname, const char *ipstr, State thisState, State successState, void (*bounceFtor)()) {
-  Log.printf("INFO(%ld): pinging %s @ %s\n", millis(), devname, ipstr);
+  //Log.printf("INFO(%ld): pinging %s @ %s\n", millis(), devname, ipstr);
   if (WiFi.ping(ipstr) > 0) {
-    Log.printf("INFO(%ld):: successful ping of %s @ %s\n", millis(), devname, ipstr);
+    Log.printf("INFO(%ld): successful ping of %s @ %s\n", millis(), devname, ipstr);
     nextState(successState, 2*1000);
+    sFailureCnt = 0;
   } else {
     sFailureCnt++;
     Log.printf("WARNING(%ld): couldn't connect to %s @ %s (failure %d/%d)\n",
@@ -285,15 +300,14 @@ void setup() {
     while (true) {}
   }
 
-  Connector connector(sRGB, Log);
   if (sTest == PROD) {
     if (factoryResetEnabled) {
-      connector.factoryReset();
+      sConnector.factoryReset();
     }
-    connector.connectUsingStoredCreds();
+    sConnector.connectUsingStoredCreds(sTest);
   } else {
     // attempt to connect to WiFi network using secret creds
-    connector.connectWithCreds(SECRET_SSID, SECRET_PASS);
+    sConnector.connectWithCreds(SECRET_SSID, SECRET_PASS);
   }
   // control will only return if connected
   sRGB.setGreen(true);
@@ -304,7 +318,7 @@ void setup() {
 
   printWiFiStatus();
 
-  send_email("bouncy reset");
+  send_reset_email();
 
   // consider testing mode: should one of the addresses be perturbed, or directly trigger something
   if (sTest == test_ROUTER) {
@@ -331,21 +345,71 @@ void loop() {
 
   switch (sState) {
     case Initialize: 
-      sStateAfterWait = RouterPing;
+      sStateAfterWait = APConnect;
       sState = Wait;
       sWait_ms = 1000;
       break;
+    case APConnect:
+      if (!sConnector.isConnected()) {
+        sRGB.off();
+        sRGB.setBlue(true);
+       
+        sFailureCnt++;
+        Log.printf("INFO(%ld): AP disconnect detected (failure %d/%d)\n",
+                   millis(), sFailureCnt, NUM_FAILURES_TO_BOUNCE);
+
+        if (sFailureCnt < NUM_FAILURES_TO_BOUNCE) {
+          Log.printf("WARNING(%d): attempting wifi reconnect\n", millis());
+
+          // make one try at reconnecting
+          const int num_tries = 1;
+          bool connected = sConnector.reconnect(num_tries);
+          if (connected) {
+            Log.printf("INFO(%ld): success; continuing as normal\n", millis());
+            sRGB.off();
+            sRGB.setGreen(true);
+            sPendingEmail = "AP disconnect";
+            nextState(RouterPing, 2*1000);
+          } else {
+            Log.printf("WARNING(%ld): failed; retrying in 60s..\n", millis());
+            nextState(APConnect, 60*1000);
+          }
+
+        } else {
+          // all tries exhausted...  have to bounce the router
+          Log.printf("WARNING(%ld): All AP connect tests exhausted; bouncing router...\n", millis());
+                     bounce_router();
+
+          // reconnect -- try forever
+          sConnector.reconnect();
+
+          sRGB.off();
+          sRGB.setGreen(true);
+          sPendingEmail = "AP disconnect";
+
+          sFailureCnt = 0;
+          nextState(Initialize, 1*1000);
+        }
+      } else {
+        sRGB.setBlue(false);
+        sRGB.setGreen(true);
+
+        Log.printf("INFO(%ld): AP connection detected\n", millis());
+        nextState(RouterPing, 2*1000);
+        sFailureCnt = 0;
+      }
+      break;
     case RouterPing: 
-      ping_test("router", to_str(RouterIP), RouterPing, ModemPing, bounce_router);
+      ping_test("router", to_str(RouterIP()), RouterPing, ModemPing, bounce_router);
       break;
     case ModemPing: 
-      ping_test("modem", to_str(ModemIP), ModemPing, InternetPing, bounce_modem);
+      ping_test("modem", to_str(ModemIP()), ModemPing, InternetPing, bounce_modem);
       break;
     case InternetPing: 
-      ping_test("internet", to_str(Internet), InternetPing, DnsPing, bounce_modem);
+      ping_test("internet", to_str(Internet()), InternetPing, DnsPing, bounce_modem);
       break;
     case DnsPing: 
-      ping_test("dns", DNS, DnsPing, Sleep, bounce_modem);
+      ping_test("dns", DNS(), DnsPing, Sleep, bounce_modem);
       break;
     case Sleep: 
       Log.printf("INFO(%ld): sleeping until next check in %d mins\n", millis(), TIME_BETWEEN_MONITOR_ATTEMPTS_ms/1000/60);
@@ -356,8 +420,14 @@ void loop() {
       Log.flush();
       delay(1);
       if (--sWait_ms == 0) {
-        sState = sStateAfterWait;
-        sStateAfterWait = Initialize;
+        if (sPendingEmail) {
+          send_email(sPendingEmail);
+          sWait_ms = 30000; // wait some more for email to send+settle
+          sPendingEmail = NULL;
+        } else {
+          sState = sStateAfterWait;
+          sStateAfterWait = Initialize;
+        }
       }
       break;
   }
