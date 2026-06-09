@@ -49,7 +49,7 @@ static const IPAddress RouterIP() {return IPAddress(10,0,0, (sTest != test_ROUTE
 static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
 static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
 
-static const uint8_t FACTORY_RESET_PIN = 6;
+static const uint8_t FACTORY_RESET_PIN = A0;
 static const unsigned long FACTORY_RESET_HOLD_MS = 5000;
 
 static const uint8_t MODEM_SSR_PIN = A5;
