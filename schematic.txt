@@ -1,0 +1,114 @@
+==============================================================================
+  modemBounce  ·  Feather M0 (SAMD21 / ATWINC1500)  ·  Circuit Schematic
+==============================================================================
+
+  SSRs: Berm KB25DA (3-32 V DC input, 24-480 V AC / 25 A output, NC type)
+  RGB LED: common cathode; single 470 ohm resistor on cathode path
+  MCU power: disassembled USB wall-wart wired internally to post-fuse AC;
+             5 V DC output wired directly to Feather VUSB header pin
+  Construction: hand-assembled protoboard PCB
+
+
+  AC MAINS WIRING (120 VAC)
+  --------------------------
+
+   Mains inlet
+     L (hot) ---- [10 A fuse] ---+--- SSR1 KB25DA in (NC) --- SSR1 out --- ROUTER plug L
+                                 |
+                                 +--- SSR2 KB25DA in (NC) --- SSR2 out --- MODEM plug L
+                                 |
+                                 +--- USB wall-wart AC in (L)
+                                           |
+     N (neutral) ----------+--------------+--- USB wall-wart AC in (N)
+                           |                        |
+                           |               USB wall-wart out: 5 V DC
+                           |                        |
+                           +---- ROUTER plug N      +---> 5 V rail (protoboard)
+                           |
+                           +---- MODEM plug N
+
+
+  LOW-VOLTAGE CIRCUIT  (protoboard)
+  ----------------------------------
+
+  5 V rail ---+--- Feather VUSB pin  (powers MCU; also source for SSR drivers)
+              |
+              +--- SSR1 KB25DA input (+)
+              |
+              +--- SSR2 KB25DA input (+)
+
+
+  +----------------------------------------------------------------------+
+  | Feather M0 WINC1500 module (SAMD21 / ATWINC1500)                     |
+  |                                                                      |
+  |  -- Reset / Factory-Reset Button ----------------------------        |
+  |                                                                      |
+  |                        +-------- [~0.47 uF] ---- RESET pin           |
+  |   A0 (INPUT_PULLUP) ---+                                             |
+  |                        +--------------------------------- GND        |
+  |                                [BTN, NO, single-throw]               |
+  |                                                                      |
+  |   Press: cap pulse resets Feather; firmware checks A0 on boot        |
+  |   Hold 5 s after reset: factory reset (clears Wi-Fi creds)           |
+  |                                                                      |
+  |  -- RGB Status LED (common cathode, one color at a time) ----        |
+  |                                                                      |
+  |   A4 ------------------------------------ R anode                    |
+  |   A1 ------------------------------------ G anode                    |
+  |   A2 ------------------------------------ B anode                    |
+  |                             common cathode -- [470 ohm] -- GND       |
+  |                                                                      |
+  |  -- SSR Driver - Router  (pin 5, low-side NPN) -------------         |
+  |                                                                      |
+  |   pin 5 -- [2.2 kohm] -- Q1 base (2N2222)                            |
+  |                           Q1 emitter --------- GND                   |
+  |   5 V rail -------------- SSR1 KB25DA input (+)                      |
+  |                           Q1 collector ------- SSR1 KB25DA input (-) |
+  |                                                                      |
+  |  -- SSR Driver - Modem  (pin A5, low-side NPN) -------------         |
+  |                                                                      |
+  |   A5 ----- [2.2 kohm] -- Q2 base (2N2222)                            |
+  |                           Q2 emitter --------- GND                   |
+  |   5 V rail -------------- SSR2 KB25DA input (+)                      |
+  |                           Q2 collector ------- SSR2 KB25DA input (-) |
+  |                                                                      |
+  |  -- ATWINC1500 Wi-Fi (on-module; no external wiring) ---------       |
+  |   WiFi.setPins(CS=8, IRQ=7, RST=4, EN=2)                             |
+  +----------------------------------------------------------------------+
+
+
+  NORMALLY-CLOSED SSR LOGIC
+  -------------------------
+  The Berm KB25DA has both normally-closed (NC) and normally-open (NO)
+  pins, but NC mode is used exclusively: AC passes through by default.
+  The Feather only has to act to interrupt power, not to restore it.
+  If the Feather loses power or crashes, both outlets remain energized.
+
+    Feather pin LOW  (0 V)   -> Q off -> SSR de-energized -> CLOSED -> AC ON
+    Feather pin HIGH (3.3 V) -> Q sat -> SSR energized    -> OPEN   -> AC OFF
+
+  Both SSR output pins are initialized LOW in setup(), so AC is on at boot.
+
+
+  ENCLOSURE
+  ---------
+  Entirely laser-cut Delrin (acetal/POM) — electrically insulating and
+  self-extinguishing. Three internal compartments provide HV/LV isolation:
+
+    [Low-voltage]          [High-voltage mixed]        [AC outlets]
+    Protoboard PCB         SSRs                        Modem plug
+    Feather M0             USB wall-wart               Router plug
+    LED, button            Incoming mains cable        10 A fuse
+
+  The two internal divider panels (interior-short, interior-long) physically
+  separate the low-voltage PCB from all mains-potential conductors.
+
+
+  AC SAFETY NOTE
+  --------------
+  The 10 A fuse protects the entire hot feed before it reaches the SSRs or
+  the internal wall-wart. Neutral is passed through uninterrupted. All
+  mains-potential conductors are contained within the two HV compartments
+  and are physically isolated from the low-voltage PCB by Delrin dividers.
+
+==============================================================================
