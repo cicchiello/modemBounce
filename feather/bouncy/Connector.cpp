@@ -141,16 +141,28 @@ bool Connector::connectWithCreds(const char *ssid, const char *pswd, int max_tri
   int wifi_status = WL_IDLE_STATUS;
   int num_tries = 0; // max_tries == -1 indicates infinite
   while ((wifi_status != WL_CONNECTED) && ((max_tries == -1) || (max_tries > num_tries))) {
-    num_tries++;
-    
     mRGB.setBlue(true);
-    mLogger.printf("INFO(%ld): Attempting to connect to SSID: %s\n", millis(), sSSID);
+    if (num_tries == 0) {
+        // always post a message on first try
+        mLogger.printf("INFO(%ld): Attempting to connect to SSID: %s\n", millis(), sSSID);
+    } else if ((num_tries == 1) && (max_tries == -1)){
+        // if not in a max-try loop, post on second try to tell user we're not going to post forever
+        mLogger.printf("WARNING(%ld): Failed; will silently continue retrying every 10s\n", millis());
+    } else if (max_tries != -1) {
+        // if we're not in an infinite retry loop, post a message every time
+        mLogger.printf("INFO(%ld): Attempting to connect to SSID: %s\n", millis(), sSSID);
+    }
+    
+    num_tries++;
     
     // Connect to WPA/WPA2 network. Change this line if using open or WEP network:
     wifi_status = WiFi.begin(sSSID, sPSWD);
     
     // wait 10 seconds for connection:
     delay(10000);
+  }
+  if ((wifi_status == WL_CONNECTED) && (num_tries > 1)) {
+      mLogger.printf("INFO(%ld): Connected after %d tries\n", millis(), num_tries);
   }
 
   mRGB.setBlue(false);
