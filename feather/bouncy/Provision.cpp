@@ -282,6 +282,7 @@ static bool handleSaveRequest(WiFiClient &client,
 
   String ssid = formValue(body, "ssid");
   String pswd = formValue(body, "pswd");
+  ssid.trim();
 
   if (ssid.length() == 0) {
     sendBadRequest(client, "SSID is required");

@@ -5,16 +5,10 @@
       3) a DNS server is reachable (IP 8.8.8.8)
   
   If any of those checks fail:
-      1) trigger power-cycle of router
+      1) trigger power-cycle of router, or
       2) trigger power-cycle of cable modem
-      3) trigger power-cycle of cable modem
 
   Copyright Joe Cicchiello 2026
-
-  ToDo:
-    - consider OTA updates (mostly to enable testing in-circuit, but could change behavior later)
-    - define and print enclosure
-    - wire up and install circuit
 
 */
 
@@ -31,7 +25,7 @@
 #define PROGNAME "Bouncy"
 
 
-enum State {Initialize, Wait, Sleep, APConnect, RouterPing, ModemPing, InternetPing, DnsPing};
+enum State {Initialize, Wait, Sleep, APConnect, RouterPing, ModemPing, InternetPing, DnsPing, RemoteBounceCheck};
 
 static Runtype sTest = PROD;
 static State sState = Initialize;
@@ -45,6 +39,10 @@ static const IPAddress Internet() {return IPAddress(8,8,8,(sTest != test_IP ? 8 
 static const char *DNS() {return sTest != test_DNS ? "google.com" : "google.comfoo";}
 static const IPAddress ModemIP() {return IPAddress(192,168,100, (sTest != test_MODEM ? 1 : 111));}
 static const IPAddress RouterIP() {return IPAddress(10,0,0, (sTest != test_ROUTER ? 1 : 111));}
+
+static const char *COUCHDB_HOST = "10.0.0.211";
+static const uint16_t COUCHDB_PORT = 5984;
+static const char *COUCHDB_DOC_PATH = "/bouncy/bounce";
 
 static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
 static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
@@ -214,8 +212,8 @@ static int ping_test(const char *devname, const char *ipstr, State thisState, St
     Log.printf("WARNING(%ld): couldn't connect to %s @ %s (failure %d/%d)\n",
                millis(), devname, ipstr, sFailureCnt, NUM_FAILURES_TO_BOUNCE);
     if (sFailureCnt < NUM_FAILURES_TO_BOUNCE) {
-      Log.printf("INFO(%ld): retrying in 60s...\n", millis());
-      nextState(thisState, 60*1000);
+      Log.printf("INFO(%ld): retrying in %ds...\n", millis(), sTest == PROD ? 60 : 10);
+      nextState(thisState, sTest == PROD ? 60*1000 : 10*1000);
     } else {
       // all tries exhausted...  have to bounce the device
       Log.printf("WARNING(%ld): All %s tries exhausted; bouncing %s...\n", millis(), devname, devname);
@@ -266,6 +264,168 @@ static bool checkFactoryResetButton() {
 
 
 
+static bool extractJsonStringValue(const char *json, const char *key, char *out, size_t outLen) {
+  char pattern[64];
+  snprintf(pattern, sizeof(pattern), "\"%s\":\"", key);
+
+  const char *start = strstr(json, pattern);
+  if (!start) return false;
+
+  start += strlen(pattern);
+  const char *end = strchr(start, '"');
+  if (!end) return false;
+
+  size_t len = end - start;
+  if (len >= outLen) return false;
+
+  memcpy(out, start, len);
+  out[len] = '\0';
+  return true;
+}
+
+
+static bool clearRemoteBounceFlag(const char *rev) {
+  WiFiClient client;
+
+  if (!client.connect(COUCHDB_HOST, COUCHDB_PORT)) {
+    Log.printf("WARNING(%ld): RemoteBounce: couldn't connect to CouchDB for PUT\n", millis());
+    return false;
+  }
+
+  char body[256];
+  snprintf(body, sizeof(body),
+           "{\"_id\":\"bounce\",\"_rev\":\"%s\",\"device\":null}", rev);
+  size_t len = strlen(body);
+
+  client.print("PUT ");
+  client.print(COUCHDB_DOC_PATH);
+  client.println(" HTTP/1.1");
+  client.print("Host: ");
+  client.println(COUCHDB_HOST);
+  client.print("Authorization: Basic ");
+  client.println(SECRET_COUCHDB_BASIC_AUTH);
+  client.println("Content-Type: application/json");
+  client.print("Content-Length: ");
+  client.println(len);
+  client.println("Connection: close");
+  client.println();
+  client.write((const uint8_t *)body, len);
+
+  unsigned long deadline = millis() + 10000;
+  while (client.connected() && !client.available() && millis() < deadline) {
+    delay(10);
+  }
+
+  int status = 0;
+  if (client.available()) {
+    String statusLine = client.readStringUntil('\n');
+    int firstSpace = statusLine.indexOf(' ');
+    if (firstSpace >= 0)
+      status = statusLine.substring(firstSpace + 1, firstSpace + 4).toInt();
+  }
+
+  client.stop();
+
+  if (status == 201) {
+    Log.printf("INFO(%ld): RemoteBounce: cleared remote bounce flag\n", millis());
+    return true;
+  } else {
+    Log.printf("WARNING(%ld): RemoteBounce: failed to clear flag (HTTP %d)\n", millis(), status);
+    return false;
+  }
+}
+
+
+static void checkRemoteBounce() {
+  WiFiClient client;
+
+  if (!client.connect(COUCHDB_HOST, COUCHDB_PORT)) {
+    Log.printf("WARNING(%ld): RemoteBounce: couldn't connect to CouchDB\n", millis());
+    return;
+  }
+
+  client.print("GET ");
+  client.print(COUCHDB_DOC_PATH);
+  client.println(" HTTP/1.1");
+  client.print("Host: ");
+  client.println(COUCHDB_HOST);
+  client.print("Authorization: Basic ");
+  client.println(SECRET_COUCHDB_BASIC_AUTH);
+  client.println("Accept: application/json");
+  client.println("Connection: close");
+  client.println();
+
+  unsigned long deadline = millis() + 10000;
+  while (client.connected() && !client.available() && millis() < deadline) {
+    delay(10);
+  }
+
+  if (!client.available()) {
+    Log.printf("WARNING(%ld): RemoteBounce: no response from CouchDB\n", millis());
+    client.stop();
+    return;
+  }
+
+  String statusLine = client.readStringUntil('\n');
+  int firstSpace = statusLine.indexOf(' ');
+  int status = (firstSpace >= 0)
+    ? statusLine.substring(firstSpace + 1, firstSpace + 4).toInt() : 0;
+
+  if (status != 200) {
+    Log.printf("WARNING(%ld): RemoteBounce: HTTP status %d from CouchDB\n", millis(), status);
+    client.stop();
+    return;
+  }
+
+  // skip headers
+  while (client.available()) {
+    String line = client.readStringUntil('\n');
+    line.trim();
+    if (line.length() == 0) break;
+  }
+
+  // read body
+  char body[512];
+  size_t bodyLen = 0;
+  deadline = millis() + 5000;
+  while (bodyLen < sizeof(body) - 1 && millis() < deadline) {
+    if (client.available()) {
+      body[bodyLen++] = client.read();
+    } else if (!client.connected()) {
+      break;
+    } else {
+      delay(1);
+    }
+  }
+  body[bodyLen] = '\0';
+
+  client.stop();
+
+  bool wantModem = strstr(body, "\"device\":\"modem\"") != NULL;
+  bool wantRouter = strstr(body, "\"device\":\"router\"") != NULL;
+
+  if (!wantModem && !wantRouter) {
+    Log.printf("INFO(%ld): RemoteBounce: not requested\n", millis());
+    return;
+  }
+
+  char rev[128];
+  if (!extractJsonStringValue(body, "_rev", rev, sizeof(rev))) {
+    Log.printf("WARNING(%ld): RemoteBounce: couldn't parse _rev; skipping to avoid repeat bounces\n", millis());
+    return;
+  }
+
+  // clear the request before bouncing anything to avoid a bounce infinite loop
+  clearRemoteBounceFlag(rev);
+  
+  if (wantModem) {
+    Log.printf("INFO(%ld): RemoteBounce: remote modem bounce requested\n", millis());
+    bounce_modem();
+  } else {
+    Log.printf("INFO(%ld): RemoteBounce: remote router bounce requested\n", millis());
+    bounce_router();
+  }
+}
 
 
 void setup() {
@@ -371,8 +531,8 @@ void loop() {
             sPendingEmail = "AP disconnect";
             nextState(RouterPing, 2*1000);
           } else {
-            Log.printf("WARNING(%ld): failed; retrying in 60s..\n", millis());
-            nextState(APConnect, 60*1000);
+            Log.printf("WARNING(%ld): failed; retrying in %ds..\n", millis(), sTest == PROD ? 60 : 10);
+            nextState(APConnect, sTest == PROD ? 60*1000 : 10*1000);
           }
 
         } else {
@@ -408,8 +568,12 @@ void loop() {
     case InternetPing: 
       ping_test("internet", to_str(Internet()), InternetPing, DnsPing, bounce_modem);
       break;
-    case DnsPing: 
-      ping_test("dns", DNS(), DnsPing, Sleep, bounce_modem);
+    case DnsPing:
+      ping_test("dns", DNS(), DnsPing, RemoteBounceCheck, bounce_modem);
+      break;
+    case RemoteBounceCheck:
+      checkRemoteBounce();
+      nextState(Sleep, 1000);
       break;
     case Sleep: 
       Log.printf("INFO(%ld): sleeping until next check in %d mins\n", millis(), TIME_BETWEEN_MONITOR_ATTEMPTS_ms/1000/60);
