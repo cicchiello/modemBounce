@@ -9,7 +9,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 1. **`feather/bouncy/`** — Arduino/C++ firmware for an Adafruit Feather M0 (ATWINC1500 WiFi). The primary, current implementation.
 2. **`rpi/`** — Legacy Python script for a Raspberry Pi, run via cron. Superseded by the Feather.
 3. **`iot-services/email-relay/`** — Small Python HTTP service running on `pi-nas` (Raspberry Pi 5 / OpenMediaVault at `10.0.0.214`). Acts as an SMTP relay so the Feather does not need SMTP credentials.
-4. **`enclosure/`** — Laser-cut Delrin enclosure. Three internal compartments: low-voltage PCB | SSRs + wall-wart + mains input | AC plugs + fuse. FreeCAD source and SVG panel/divider exports.
+4. **`enclosure/`** — Laser-cut Delrin enclosure. Three internal compartments: low-voltage PCB | Relays + wall-wart + mains input | AC plugs + fuse. FreeCAD source and SVG panel/divider exports.
 
 ## Building and deploying
 
@@ -61,7 +61,7 @@ Each ping state retries up to `NUM_FAILURES_TO_BOUNCE` times (5 in PROD, 3 in te
 - Router ping failure → `bounce_router()` (GPIO pin 5)
 - Modem/Internet/DNS ping failure → `bounce_modem()` (GPIO pin A5)
 
-**SSR wiring is normally-closed**: `LOW` = relay closed = power **on**; `HIGH` = relay open = power **off**.
+**Relay wiring is normally-closed**: `LOW` = relay de-energized = contacts closed = power **on**; `HIGH` = relay energized = contacts open = power **off**.
 
 Bounce sequence: power off → 15 s → power on → wait 210 s for device initialization → set `sPendingEmail`. The pending email is sent during the next `Wait` drain cycle.
 
@@ -70,8 +70,8 @@ Bounce sequence: power off → 15 s → power on → wait 210 s for device initi
 | Pin | Function |
 |-----|----------|
 | A0  | Factory-reset button (INPUT_PULLUP; hold 5 s to clear stored WiFi creds) |
-| A5  | Modem SSR (normally-closed) |
-| 5   | Router SSR (normally-closed) |
+| A5  | Modem relay driver (low-side NPN) |
+| 5   | Router relay driver (low-side NPN) |
 | 8,7,4,2 | ATWINC1500 SPI/control pins (set via `WiFi.setPins`) |
 
 ### RGB LED status

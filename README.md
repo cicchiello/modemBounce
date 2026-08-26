@@ -13,8 +13,8 @@ The hardware is an **Adafruit Feather M0** (SAMD21 + ATWINC1500 Wi-Fi), housed i
 | Qty | Component | Notes |
 |-----|-----------|-------|
 | 1 | Adafruit Feather M0 WiFi (ATWINC1500) | MCU + Wi-Fi |
-| 2 | Berm KB25DA normally-closed SSR | 3–32 V DC input, 25 A AC output |
-| 2 | 2N2222 NPN transistor | Low-side SSR driver (one per SSR) |
+| 2 | 5 V DC relay, normally-closed contacts | For AC switching |
+| 2 | 2N2222 NPN transistor | Low-side relay driver (one per relay) |
 | 2 | 2.2 kΩ resistor, 1/4 W | 2N2222 base resistor |
 | 1 | RGB LED, 5 mm, common cathode | Status indicator |
 | 1 | 470 Ω resistor, 1/4 W | LED common-cathode current-limiting |
@@ -23,7 +23,7 @@ The hardware is an **Adafruit Feather M0** (SAMD21 + ATWINC1500 Wi-Fi), housed i
 | 1 | USB wall adapter (disassembled) | Wired internally to post-fuse AC; 5 V DC output wired directly to Feather VUSB header pin |
 | 1 | Protoboard | Hand-assembled PCB carrying the Feather and all low-voltage components |
 
-See `schematic.txt` for wiring details. The mains hot feed passes through a 10 A fuse before splitting to both SSRs. Neutral runs straight through to both outlets; only the hot conductor is switched.
+See `schematic.txt` for wiring details. The mains hot feed passes through a 10 A fuse before splitting to both relays. Neutral runs straight through to both outlets; only the hot conductor is switched.
 
 ### Enclosure
 
@@ -33,8 +33,8 @@ The interior is divided into **three compartments** by two internal divider pane
 
 | Compartment | Contents |
 |-------------|----------|
-| Low-voltage | Protoboard PCB (Feather M0 + SSR drivers + LED + reset button) |
-| High-voltage mixed | SSRs, disassembled USB wall-wart, incoming mains cable |
+| Low-voltage | Protoboard PCB (Feather M0 + relay drivers + LED + reset button) |
+| High-voltage mixed | Relays, disassembled USB wall-wart, incoming mains cable |
 | AC outlets | Modem and router plugs, 10 A fuse |
 
 The primary intent is HV/LV isolation; three compartments emerged naturally from the physical layout of the components.

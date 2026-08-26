@@ -2,7 +2,7 @@
   modemBounce  ·  Feather M0 (SAMD21 / ATWINC1500)  ·  Circuit Schematic
 ==============================================================================
 
-  SSRs: Berm KB25DA (3-32 V DC input, 24-480 V AC / 25 A output, NC type)
+  Relays: 5 V DC coil, NC (normally-closed) contacts for AC switching
   RGB LED: common cathode; single 470 ohm resistor on cathode path
   MCU power: disassembled USB wall-wart wired internally to post-fuse AC;
              5 V DC output wired directly to Feather VUSB header pin
@@ -13,9 +13,9 @@
   --------------------------
 
    Mains inlet
-     L (hot) ---- [10 A fuse] ---+--- SSR1 KB25DA in (NC) --- SSR1 out --- ROUTER plug L
+     L (hot) ---- [10 A fuse] ---+--- Relay1 NC contact (in) --- Relay1 out --- ROUTER plug L
                                  |
-                                 +--- SSR2 KB25DA in (NC) --- SSR2 out --- MODEM plug L
+                                 +--- Relay2 NC contact (in) --- Relay2 out --- MODEM plug L
                                  |
                                  +--- USB wall-wart AC in (L)
                                            |
@@ -31,11 +31,11 @@
   LOW-VOLTAGE CIRCUIT  (protoboard)
   ----------------------------------
 
-  5 V rail ---+--- Feather VUSB pin  (powers MCU; also source for SSR drivers)
+  5 V rail ---+--- Feather VUSB pin  (powers MCU; also source for relay drivers)
               |
-              +--- SSR1 KB25DA input (+)
+              +--- Relay1 coil (+)
               |
-              +--- SSR2 KB25DA input (+)
+              +--- Relay2 coil (+)
 
 
   +----------------------------------------------------------------------+
@@ -43,7 +43,9 @@
   |                                                                      |
   |  -- Reset / Factory-Reset Button ----------------------------        |
   |                                                                      |
-  |                        +-------- [~0.47 uF] ---- RESET pin           |
+  |       3.3V --------------------- [10K Ohm] ---+                      |
+  |                                               |                      |
+  |                        +-------- [~0.47 uF] --+--- RESET pin         |
   |   A0 (INPUT_PULLUP) ---+                                             |
   |                        +--------------------------------- GND        |
   |                                [BTN, NO, single-throw]               |
@@ -58,36 +60,35 @@
   |   A2 ------------------------------------ B anode                    |
   |                             common cathode -- [470 ohm] -- GND       |
   |                                                                      |
-  |  -- SSR Driver - Router  (pin 5, low-side NPN) -------------         |
+  |  -- Relay Driver - Router  (pin 5, low-side NPN) ---------------         |
   |                                                                      |
   |   pin 5 -- [2.2 kohm] -- Q1 base (2N2222)                            |
   |                           Q1 emitter --------- GND                   |
-  |   5 V rail -------------- SSR1 KB25DA input (+)                      |
-  |                           Q1 collector ------- SSR1 KB25DA input (-) |
+  |   5 V rail -------------- Relay1 coil (+)                            |
+  |                           Q1 collector ------- Relay1 coil (-)       |
   |                                                                      |
-  |  -- SSR Driver - Modem  (pin A5, low-side NPN) -------------         |
+  |  -- Relay Driver - Modem  (pin A5, low-side NPN) ----------------         |
   |                                                                      |
   |   A5 ----- [2.2 kohm] -- Q2 base (2N2222)                            |
   |                           Q2 emitter --------- GND                   |
-  |   5 V rail -------------- SSR2 KB25DA input (+)                      |
-  |                           Q2 collector ------- SSR2 KB25DA input (-) |
+  |   5 V rail -------------- Relay2 coil (+)                            |
+  |                           Q2 collector ------- Relay2 coil (-)       |
   |                                                                      |
   |  -- ATWINC1500 Wi-Fi (on-module; no external wiring) ---------       |
   |   WiFi.setPins(CS=8, IRQ=7, RST=4, EN=2)                             |
   +----------------------------------------------------------------------+
 
 
-  NORMALLY-CLOSED SSR LOGIC
-  -------------------------
-  The Berm KB25DA has both normally-closed (NC) and normally-open (NO)
-  pins, but NC mode is used exclusively: AC passes through by default.
+  NORMALLY-CLOSED RELAY LOGIC
+  ----------------------------
+  The relays use normally-closed (NC) contacts: AC passes through by default.
   The Feather only has to act to interrupt power, not to restore it.
   If the Feather loses power or crashes, both outlets remain energized.
 
-    Feather pin LOW  (0 V)   -> Q off -> SSR de-energized -> CLOSED -> AC ON
-    Feather pin HIGH (3.3 V) -> Q sat -> SSR energized    -> OPEN   -> AC OFF
+    Feather pin LOW  (0 V)   -> Q off -> relay de-energized -> CLOSED -> AC ON
+    Feather pin HIGH (3.3 V) -> Q sat -> relay energized    -> OPEN   -> AC OFF
 
-  Both SSR output pins are initialized LOW in setup(), so AC is on at boot.
+  Both relay driver pins are initialized LOW in setup(), so AC is on at boot.
 
 
   ENCLOSURE
@@ -96,7 +97,7 @@
   self-extinguishing. Three internal compartments provide HV/LV isolation:
 
     [Low-voltage]          [High-voltage mixed]        [AC outlets]
-    Protoboard PCB         SSRs                        Modem plug
+    Protoboard PCB         Relays                      Modem plug
     Feather M0             USB wall-wart               Router plug
     LED, button            Incoming mains cable        10 A fuse
 
@@ -106,7 +107,7 @@
 
   AC SAFETY NOTE
   --------------
-  The 10 A fuse protects the entire hot feed before it reaches the SSRs or
+  The 10 A fuse protects the entire hot feed before it reaches the relays or
   the internal wall-wart. Neutral is passed through uninterrupted. All
   mains-potential conductors are contained within the two HV compartments
   and are physically isolated from the low-voltage PCB by Delrin dividers.

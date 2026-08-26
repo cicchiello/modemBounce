@@ -50,8 +50,8 @@ static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
 static const uint8_t FACTORY_RESET_PIN = A0;
 static const unsigned long FACTORY_RESET_HOLD_MS = 5000;
 
-static const uint8_t MODEM_SSR_PIN = A5;
-static const uint8_t ROUTER_SSR_PIN = 5;
+static const uint8_t MODEM_RELAY_PIN = A5;
+static const uint8_t ROUTER_RELAY_PIN = 5;
 static IndicatorLED sRGB;
 
 static Connector sConnector(sRGB, Log);
@@ -76,10 +76,10 @@ static const char *to_str(const char *s)
 static void enableRouter(bool on) {
   if (on) {
     Log.printf("INFO(%ld): enableRouter turn on\n", millis());
-    digitalWrite(ROUTER_SSR_PIN, LOW);  // SSR is normally-closed, so LOW releases it to close
+    digitalWrite(ROUTER_RELAY_PIN, LOW);  // relay is normally-closed, so LOW de-energizes it (contacts close, AC on)
   } else {
     Log.printf("INFO(%ld): enableRouter turn off\n", millis());
-    digitalWrite(ROUTER_SSR_PIN, HIGH);  // SSR is normally-closed, so HIGH drives it to open
+    digitalWrite(ROUTER_RELAY_PIN, HIGH);  // relay is normally-closed, so HIGH energizes it (contacts open, AC off)
   }
 }
 
@@ -87,10 +87,10 @@ static void enableRouter(bool on) {
 static void enableModem(bool on) {
   if (on) {
     Log.printf("INFO(%ld): enableModem turn on\n", millis());
-    digitalWrite(MODEM_SSR_PIN, LOW);  // SSR is normally-closed, so LOW releases it to close
+    digitalWrite(MODEM_RELAY_PIN, LOW);  // relay is normally-closed, so LOW de-energizes it (contacts close, AC on)
   } else {
     Log.printf("INFO(%ld): enableModem turn off\n", millis());
-    digitalWrite(MODEM_SSR_PIN, HIGH);  // SSR is normally-closed, so HIGH drives it to open
+    digitalWrite(MODEM_RELAY_PIN, HIGH);  // relay is normally-closed, so HIGH energizes it (contacts open, AC off)
   }
 }
 
@@ -432,10 +432,10 @@ void setup() {
   //Configure pins for Adafruit ATWINC1500 Feather
   WiFi.setPins(8,7,4,2);
 
-  pinMode(MODEM_SSR_PIN, OUTPUT);
-  digitalWrite(MODEM_SSR_PIN, LOW);
-  pinMode(ROUTER_SSR_PIN, OUTPUT);
-  digitalWrite(ROUTER_SSR_PIN, LOW);
+  pinMode(MODEM_RELAY_PIN, OUTPUT);
+  digitalWrite(MODEM_RELAY_PIN, LOW);
+  pinMode(ROUTER_RELAY_PIN, OUTPUT);
+  digitalWrite(ROUTER_RELAY_PIN, LOW);
 
   sState = Initialize;
 
