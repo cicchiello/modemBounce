@@ -7,7 +7,7 @@ class IndicatorLED;
 class Logger;
 
 enum Runtype {
-  PROD, test_PROD, test_ROUTER, test_IP, test_MODEM, test_DNS, test_BOUNCE_MODEM, test_BOUNCE_ROUTER, test_EMAIL
+  PROD, test_PROD, test_ROUTER, test_IP, test_MODEM, test_DNS, test_BOUNCE_MODEM, test_BOUNCE_ROUTER, test_EMAIL, test_WDT
 };
 
 
@@ -16,6 +16,8 @@ class Provision {
   Provision(WifiCredStore &wifiStore, IndicatorLED &rgb, Runtype &rtype, Logger &logger);
 
   bool runFlow();
+
+  static const char *RuntypeName(Runtype rtype);
   
  private:
   WifiCredStore &mWifiStore;

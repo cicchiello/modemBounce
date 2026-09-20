@@ -12,14 +12,16 @@ static const size_t LOG_LINE_MAX = 90;
 static const char *CLIP_STR = "...\n";
 static const int CLIP_LEN = strlen(CLIP_STR)+2;
 
+extern void watchdog_delay(unsigned long ms);
+
 
 static void _LogAssertFunc(const char *msg, const char *file, int line)
 {
   Serial.printf("ASSERT(%ld): msg %s\n", millis(), msg);
   Serial.printf("ASSERT(%ld): file %s\n", millis(), file);
   Serial.printf("ASSERT(%ld): line %d\n", millis(), line);
-  delay(10);
-  while (true) {delay(1);}
+  watchdog_delay(10);
+  while (true) {watchdog_delay(1);}
 }
 
 #define LogAssert(test,msg,file,linenum) {if (!test) {_LogAssertFunc(msg, file, linenum);}}

@@ -11,6 +11,7 @@ static WifiCredStore sWifiStore;
 static char sSSID[WifiCredStore::MAX_SSID_LEN + 1];
 static char sPSWD[WifiCredStore::MAX_PSWD_LEN + 1];
 
+extern void watchdog_delay(unsigned long ms);
 
 Connector::Connector(IndicatorLED &rgb, Logger &logger)
   : mRGB(rgb), mLogger(logger)
@@ -34,7 +35,7 @@ static bool attempt(WifiCredStore &wifiStore, char *ssid, char *pswd, IndicatorL
 
   while (status != WL_CONNECTED && millis() < deadline) {
     // wait 500ms between status checks
-    delay(500);
+    watchdog_delay(500);
     status = WiFi.status();
   }
 
@@ -48,7 +49,7 @@ static bool attempt(WifiCredStore &wifiStore, char *ssid, char *pswd, IndicatorL
   WiFi.end();
   
   // wait 1s for clean shutdown
-  delay(1000);
+  watchdog_delay(1000);
   rgb.setBlue(false);
   
   return false;
@@ -58,7 +59,6 @@ static bool attempt(WifiCredStore &wifiStore, char *ssid, char *pswd, IndicatorL
 bool Connector::isConnected() const
 {
   int status = WiFi.status();
-  //Serial.printf("DEBUG(%d): wifi status: %d (WL_CONNECTED==%d)\n", millis(), status, WL_CONNECTED);
   return status == WL_CONNECTED;
 }
 
@@ -75,7 +75,7 @@ bool Connector::reconnect(int max_tries)
   WiFi.end();
   
   // wait 1s for clean shutdown
-  delay(1000);
+  watchdog_delay(1000);
 
   bool connected = connectWithCreds(sSSID, sPSWD, max_tries);
 
@@ -98,8 +98,8 @@ void Connector::connectUsingStoredCreds(Runtype &rtype) {
       if (!provision.runFlow()) {
         mLogger.printf("ERROR(%ld): Provisioning failed to start\n", millis());
 	
-	// pause for 5s before retrying
-	delay(5000);
+    	// pause for 5s before retrying
+	watchdog_delay(5000);
       }
 
       // Whether provisioning succeeded or failed, loop back and re-check flash.
@@ -119,7 +119,7 @@ void Connector::connectUsingStoredCreds(Runtype &rtype) {
     WiFi.disconnect();
     
     // pause for 10s before retrying
-    delay(10000);
+    watchdog_delay(10000);
     mRGB.setRed(false);
   }
 }
@@ -128,7 +128,7 @@ void Connector::connectUsingStoredCreds(Runtype &rtype) {
 void Connector::factoryReset() 
 {
   sWifiStore.clear();
-  delay(1000);
+  watchdog_delay(1000);
   mLogger.printf("INFO(%ld): Cleared provisioned credentials; Provisioning will be required\n", millis());
 }
 
@@ -159,7 +159,7 @@ bool Connector::connectWithCreds(const char *ssid, const char *pswd, int max_tri
     wifi_status = WiFi.begin(sSSID, sPSWD);
     
     // wait 10 seconds for connection:
-    delay(10000);
+    watchdog_delay(10000);
   }
   if ((wifi_status == WL_CONNECTED) && (num_tries > 1)) {
       mLogger.printf("INFO(%ld): Connected after %d tries\n", millis(), num_tries);
