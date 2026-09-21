@@ -27,6 +27,7 @@
 #include "Connector.h"
 #include "Indicator.h"
 #include "EmailRelay.h"
+#include "VBat.h"
 #include "arduino_secrets.h" 
 
 #define PROGNAME "Bouncy"
@@ -71,6 +72,8 @@ static const char *sPendingEmail = NULL;
 
 static unsigned long sDiagnosticBlinkNextMs = 0;
 static bool sTestWDT = false;
+
+static VBat *sVBat = NULL;
 
 #define STATE_LOG_MAGIC (0xDEADBEEF)
 
@@ -527,6 +530,8 @@ void setup() {
   pinMode(ROUTER_RELAY_PIN, OUTPUT);
   digitalWrite(ROUTER_RELAY_PIN, LOW);
 
+  sVBat = VBat::singleton();
+  
   sState = Initialize;
 
   // Set up 16-second watchdog (uses overflow counter for extended timeout)
@@ -703,7 +708,8 @@ void loop() {
       checkRemoteBounce();
       nextState(Sleep, 1000);
       break;
-    case Sleep: 
+    case Sleep:
+      Log.printf("INFO(%ld): VBat: %d mV\n", millis(), (int) (sVBat->readVolts() * 1000.0f + 0.5f));
       Log.printf("INFO(%ld): sleeping until next check in %d mins\n", millis(), TIME_BETWEEN_MONITOR_ATTEMPTS_ms/1000/60);
       nextState(Initialize, TIME_BETWEEN_MONITOR_ATTEMPTS_ms);
       sFailureCnt = 0;
