@@ -62,8 +62,8 @@ bool HttpLogger::logLine(const char *line) {
 
   client.write((const uint8_t *)line, len);
 
-  unsigned long deadline = millis() + 3000;
-  while (client.connected() && !client.available() && millis() < deadline) {
+  unsigned long startMs = millis();
+  while (client.connected() && !client.available() && millis() - startMs < 3000) {
     watchdog_delay(10);
   }
 

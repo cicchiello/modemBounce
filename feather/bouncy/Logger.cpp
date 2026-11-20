@@ -17,9 +17,9 @@ extern void watchdog_delay(unsigned long ms);
 
 static void _LogAssertFunc(const char *msg, const char *file, int line)
 {
-  Serial.printf("ASSERT(%ld): msg %s\n", millis(), msg);
-  Serial.printf("ASSERT(%ld): file %s\n", millis(), file);
-  Serial.printf("ASSERT(%ld): line %d\n", millis(), line);
+  Serial.printf("ASSERT(%lu): msg %s\n", millis(), msg);
+  Serial.printf("ASSERT(%lu): file %s\n", millis(), file);
+  Serial.printf("ASSERT(%lu): line %d\n", millis(), line);
   watchdog_delay(10);
   while (true) {watchdog_delay(1);}
 }
@@ -198,7 +198,7 @@ void Logger::flush() {
   if (_dropped > 0) {
     // indicate dropped messages with a synthesized log entry
     SharedScratchBuf buf(__FILE__, __LINE__);
-    sprintf(buf.c_str(), "(delayed) WARNING(%ld): Logger dropped %d older messages\n", millis(), _dropped);
+    sprintf(buf.c_str(), "(delayed) WARNING(%lu): Logger dropped %d older messages\n", millis(), _dropped);
     
     if (!_httpLogger->printf(buf.c_str())) {
       return;

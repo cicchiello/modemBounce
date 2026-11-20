@@ -83,9 +83,9 @@ static bool readRequest(WiFiClient &client, HttpRequest &req) {
   req.path = "";
   req.contentLength = 0;
 
-  unsigned long deadline = millis() + 3000;
+  unsigned long startMs = millis();
 
-  while (!client.available() && millis() < deadline) {
+  while (!client.available() && millis() - startMs < 3000) {
     watchdog_delay(5);
   }
 
@@ -106,7 +106,7 @@ static bool readRequest(WiFiClient &client, HttpRequest &req) {
   req.method = requestLine.substring(0, sp1);
   req.path = requestLine.substring(sp1 + 1, sp2);
 
-  while (client.connected() && millis() < deadline) {
+  while (client.connected() && millis() - startMs < 3000) {
     String line = client.readStringUntil('\n');
     line.trim();
 
@@ -278,8 +278,8 @@ static bool handleSaveRequest(WiFiClient &client,
   String body;
   body.reserve(req.contentLength);
 
-  unsigned long deadline = millis() + 3000;
-  while (body.length() < req.contentLength && millis() < deadline) {
+  unsigned long startMs = millis();
+  while (body.length() < req.contentLength && millis() - startMs < 3000) {
     while (client.available() && body.length() < req.contentLength) {
       body += (char)client.read();
     }
@@ -375,7 +375,7 @@ Provision::Provision(WifiCredStore &wifiStore, IndicatorLED &rgb,
 
 
 bool Provision::runFlow() {
-  mLogger.printf("INFO(%ld): Starting AP for provisioning...\n", millis());
+  mLogger.printf("INFO(%lu): Starting AP for provisioning...\n", millis());
 
   mRGB.off();
   mRGB.setRed(true);
@@ -383,7 +383,7 @@ bool Provision::runFlow() {
   int apStatus = WiFi.beginAP("Bouncy-Setup");
 
   if (apStatus != WL_AP_LISTENING) {
-    mLogger.printf("FATAL(%ld): Failed to start AP, status=%d\n", millis(), apStatus);
+    mLogger.printf("FATAL(%lu): Failed to start AP, status=%d\n", millis(), apStatus);
     return false;
   }
 
@@ -393,13 +393,13 @@ bool Provision::runFlow() {
   snprintf(ipstr, sizeof(ipstr), "%u.%u.%u.%u",
            ip[0], ip[1], ip[2], ip[3]);
 
-  mLogger.printf("INFO(%ld): AP started\n", millis());
+  mLogger.printf("INFO(%lu): AP started\n", millis());
 
   WiFiServer ProvisionServer(80);
   ProvisionServer.begin();
 
-  mLogger.printf("INFO(%ld): Provisioning Web Server started\n", millis());
-  mLogger.printf("INFO(%ld): Open http://%s/\n", millis(), ipstr);
+  mLogger.printf("INFO(%lu): Provisioning Web Server started\n", millis());
+  mLogger.printf("INFO(%lu): Open http://%s/\n", millis(), ipstr);
 
   bool saved = false;
   while (!saved) {
@@ -423,7 +423,7 @@ bool Provision::runFlow() {
     client.stop();
 
     if (saved) {
-      mLogger.printf("INFO(%ld): credentials saved\n", millis());
+      mLogger.printf("INFO(%lu): credentials saved\n", millis());
       mRGB.setRed(false);
       mRGB.setBlue(true);
     }

@@ -150,9 +150,9 @@ static bool writeJsonEscaped(char *out,
 
 
 static int readHttpStatus(WiFiClient &client) {
-  unsigned long deadline = millis() + 10000;
+  unsigned long startMs = millis();
 
-  while (client.connected() && !client.available() && millis() < deadline) {
+  while (client.connected() && !client.available() && millis() - startMs < 10000) {
     watchdog_delay(10);
   }
 

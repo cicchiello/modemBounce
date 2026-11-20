@@ -23,24 +23,24 @@ Connector::Connector(IndicatorLED &rgb, Logger &logger)
 static bool attempt(WifiCredStore &wifiStore, char *ssid, char *pswd, IndicatorLED &rgb, Logger &logger) {
   rgb.setBlue(true);
   if (!wifiStore.load(ssid, WifiCredStore::MAX_SSID_LEN + 1, pswd, WifiCredStore::MAX_PSWD_LEN + 1)) {
-    logger.printf("INFO(%ld): No valid WiFi credentials in flash\n", millis());
+    logger.printf("INFO(%lu): No valid WiFi credentials in flash\n", millis());
     return false;
   }
 
-  logger.printf("INFO(%ld): Trying WiFi SSID: %s\n", millis(), ssid);
+  logger.printf("INFO(%lu): Trying WiFi SSID: %s\n", millis(), ssid);
 
   int status = WiFi.begin(ssid, pswd);
 
-  unsigned long deadline = millis() + 20000;
+  unsigned long startMs = millis();
 
-  while (status != WL_CONNECTED && millis() < deadline) {
+  while (status != WL_CONNECTED && millis() - startMs < 20000) {
     // wait 500ms between status checks
     watchdog_delay(500);
     status = WiFi.status();
   }
 
   if (status == WL_CONNECTED) {
-    logger.printf("INFO(%ld): WiFi connected\n", millis());
+    logger.printf("INFO(%lu): WiFi connected\n", millis());
     rgb.setBlue(false);
     return true;
   }
@@ -92,21 +92,21 @@ void Connector::connectUsingStoredCreds(Runtype &rtype) {
   
   while (true) {
     if (!sWifiStore.load(sSSID, sizeof(sSSID), sPSWD, sizeof(sPSWD))) {
-      mLogger.printf("WARNING(%ld): No stored WiFi credentials; entering provisioning mode\n", millis());
+      mLogger.printf("WARNING(%lu): No stored WiFi credentials; entering provisioning mode\n", millis());
 
       Provision provision(sWifiStore, mRGB, rtype, mLogger);
       if (!provision.runFlow()) {
-        mLogger.printf("ERROR(%ld): Provisioning failed to start\n", millis());
+        mLogger.printf("ERROR(%lu): Provisioning failed to start\n", millis());
 	
-    	// pause for 5s before retrying
-	watchdog_delay(5000);
+    	  // pause for 5s before retrying
+        watchdog_delay(5000);
       }
 
       // Whether provisioning succeeded or failed, loop back and re-check flash.
       continue;
     }
 
-    mLogger.printf("INFO(%ld): Stored WiFi credentials found for SSID: %s\n", millis(), sSSID);
+    mLogger.printf("INFO(%lu): Stored WiFi credentials found for SSID: %s\n", millis(), sSSID);
 
     if (attempt(sWifiStore, sSSID, sPSWD, mRGB, mLogger)) {
       mRGB.off();
@@ -114,7 +114,7 @@ void Connector::connectUsingStoredCreds(Runtype &rtype) {
     }
 
     mRGB.setRed(true);
-    mLogger.printf("WARNING(%ld): WiFi connect failed with stored credentials; will retry\n", millis());
+    mLogger.printf("WARNING(%lu): WiFi connect failed with stored credentials; will retry\n", millis());
 
     WiFi.disconnect();
     
@@ -129,7 +129,7 @@ void Connector::factoryReset()
 {
   sWifiStore.clear();
   watchdog_delay(1000);
-  mLogger.printf("INFO(%ld): Cleared provisioned credentials; Provisioning will be required\n", millis());
+  mLogger.printf("INFO(%lu): Cleared provisioned credentials; Provisioning will be required\n", millis());
 }
 
 
@@ -144,13 +144,13 @@ bool Connector::connectWithCreds(const char *ssid, const char *pswd, int max_tri
     mRGB.setBlue(true);
     if (num_tries == 0) {
         // always post a message on first try
-        mLogger.printf("INFO(%ld): Attempting to connect to SSID: %s\n", millis(), sSSID);
+        mLogger.printf("INFO(%lu): Attempting to connect to SSID: %s\n", millis(), sSSID);
     } else if ((num_tries == 1) && (max_tries == -1)){
         // if not in a max-try loop, post on second try to tell user we're not going to post forever
-        mLogger.printf("WARNING(%ld): Failed; will silently continue retrying every 10s\n", millis());
+        mLogger.printf("WARNING(%lu): Failed; will silently continue retrying every 10s\n", millis());
     } else if (max_tries != -1) {
         // if we're not in an infinite retry loop, post a message every time
-        mLogger.printf("INFO(%ld): Attempting to connect to SSID: %s\n", millis(), sSSID);
+        mLogger.printf("INFO(%lu): Attempting to connect to SSID: %s\n", millis(), sSSID);
     }
     
     num_tries++;
@@ -162,7 +162,7 @@ bool Connector::connectWithCreds(const char *ssid, const char *pswd, int max_tri
     watchdog_delay(10000);
   }
   if ((wifi_status == WL_CONNECTED) && (num_tries > 1)) {
-      mLogger.printf("INFO(%ld): Connected after %d tries\n", millis(), num_tries);
+      mLogger.printf("INFO(%lu): Connected after %d tries\n", millis(), num_tries);
   }
 
   mRGB.setBlue(false);
