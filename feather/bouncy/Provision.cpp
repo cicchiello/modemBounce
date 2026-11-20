@@ -432,7 +432,7 @@ bool Provision::runFlow() {
   // Leave AP mode before caller tries station mode.
   WiFi.end();
   
-  // pause for 1s while Wifi settles
+  // pause for 10s while Wifi settles
   watchdog_delay(10000);
 
   return true;

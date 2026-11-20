@@ -79,7 +79,7 @@ static void popOldest() {
 
 
 static void enqueue(const char *line) {
-  LogAssert(strlen(line) > LOG_LINE_MAX - CLIP_LEN, "log line too long...", __FILE__, __LINE__);
+  LogAssert(strlen(line) <= LOG_LINE_MAX - CLIP_LEN, "log line too long...", __FILE__, __LINE__);
   
   if (_count == LOG_QUEUE_DEPTH) {
     popOldest();

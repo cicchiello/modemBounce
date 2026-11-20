@@ -1,7 +1,5 @@
 #include "EmailRelay.h"  // included first to ensure it's self-contained
 
-#include "EmailRelay.h"
-
 #include <Arduino.h>
 #include <WiFi101.h>
 #include <string.h>
