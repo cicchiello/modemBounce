@@ -14,6 +14,11 @@ struct HttpRequest {
 
 static const size_t MAX_FORM_BODY = 256;
 
+static const char *sRuntypeNames[] = {
+  "PROD","test_PROD","test_ROUTER","test_IP","test_MODEM","test_DNS","test_BOUNCE_MODEM","test_BOUNCE_ROUTER","test_EMAIL","test_WDT"
+};
+
+extern void watchdog_delay(unsigned long ms);
 
 
 static void sendSetupPage(WiFiClient &client) {
@@ -61,6 +66,7 @@ static void sendSetupPage(WiFiClient &client) {
   client.println("<label><input type='radio' name='rtype' value='test_BOUNCE_MODEM'> Test: bounce modem</label>");
   client.println("<label><input type='radio' name='rtype' value='test_BOUNCE_ROUTER'> Test: bounce router</label>");
   client.println("<label><input type='radio' name='rtype' value='test_EMAIL'> Test: email</label>");
+  client.println("<label><input type='radio' name='rtype' value='test_WDT'> Test: watchdog timer</label>");
 
   client.println("</fieldset>");  
 
@@ -80,7 +86,7 @@ static bool readRequest(WiFiClient &client, HttpRequest &req) {
   unsigned long deadline = millis() + 3000;
 
   while (!client.available() && millis() < deadline) {
-    delay(5);
+    watchdog_delay(5);
   }
 
   if (!client.available()) {
@@ -251,6 +257,11 @@ static bool parseRuntype(const String &s, Runtype &rtype) {
     return true;
   }
 
+  if (s == "test_WDT") {
+    rtype = test_WDT;
+    return true;
+  }
+
   return false;
 }
 
@@ -272,7 +283,7 @@ static bool handleSaveRequest(WiFiClient &client,
     while (client.available() && body.length() < req.contentLength) {
       body += (char)client.read();
     }
-    delay(2);
+    watchdog_delay(2);
   }
 
   if (body.length() != req.contentLength) {
@@ -396,18 +407,18 @@ bool Provision::runFlow() {
 
     if (!client) {
       mRGB.toggleRed();
-      delay(50);
+      watchdog_delay(50);
       mRGB.toggleRed();
-      delay(50);
+      watchdog_delay(50);
       continue;
     }
 
     saved = handleProvisioningClient(client, mWifiStore, mRtype);
 
     mRGB.toggleRed();
-    delay(50);
+    watchdog_delay(50);
     mRGB.toggleRed();
-    delay(50);
+    watchdog_delay(50);
     
     client.stop();
 
@@ -422,11 +433,18 @@ bool Provision::runFlow() {
   WiFi.end();
   
   // pause for 1s while Wifi settles
-  delay(10000);
+  watchdog_delay(10000);
 
   return true;
 }
 
+
+/* STATIC */
+const char *Provision::RuntypeName(Runtype rtype)
+{
+  if (((int) rtype < PROD) || ((int) rtype > test_WDT)) return "<unknown>";
+  else return sRuntypeNames[(int) rtype];
+}
 
 
 

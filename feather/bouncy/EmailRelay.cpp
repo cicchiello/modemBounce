@@ -12,6 +12,7 @@ static const size_t MAX_SUBJECT_LEN = 120;
 static const size_t MAX_MESSAGE_LEN = 2000;
 static const size_t MAX_JSON_LEN = 2300;
 
+extern void watchdog_delay(unsigned long ms);
 
 
 static size_t jsonEscapedLength(const char *s) {
@@ -152,7 +153,7 @@ static int readHttpStatus(WiFiClient &client) {
   unsigned long deadline = millis() + 10000;
 
   while (client.connected() && !client.available() && millis() < deadline) {
-    delay(10);
+    watchdog_delay(10);
   }
 
   if (!client.available()) {

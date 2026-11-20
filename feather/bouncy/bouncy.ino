@@ -1,13 +1,19 @@
 /*
   Periodically, in the following order, check that:
-      1) the wifi router is reachable
-      2) the cable modem is reachable
-      3) a DNS server is reachable (IP 8.8.8.8)
+      1) the wifi router is reachable (AP Connection)
+      2) the router is reachable (ping to 10.0.0.1)
+      2) the cable modem is reachable (ping to 192.168.100.1)
+      3) a DNS server is reachable (ping 8.8.8.8)
+      4) RemoteBounce has not been requested: GET of http://10.0.0.211:5984/bouncy/bounce
+          (10.0.0.211 is the CouchDb @ Mediaserver)
   
   If any of those checks fail:
       1) trigger power-cycle of router, or
       2) trigger power-cycle of cable modem
 
+  Consistent logging is sent via web service @ http://10.0.0.214:8091/log
+  Significant events (start, reset, power-events) trigger email messages via web service @ http://10.0.0.214:8093/send
+  
   Copyright Joe Cicchiello 2026
 
 */
@@ -15,17 +21,21 @@
 
 #include <SPI.h>
 #include <WiFi101.h>
+#include "SoftWDT.h"
 #include "HttpLogger.h"
 #include "Logger.h"
 #include "Connector.h"
 #include "Indicator.h"
 #include "EmailRelay.h"
+#include "VBat.h"
 #include "arduino_secrets.h" 
 
 #define PROGNAME "Bouncy"
 
 
 enum State {Initialize, Wait, Sleep, APConnect, RouterPing, ModemPing, InternetPing, DnsPing, RemoteBounceCheck};
+static const char *StateNames[] = 
+           {"Initialize","Wait","Sleep","APConnect","RouterPing","ModemPing","InternetPing","DnsPing","RemoteBounceCheck"};
 
 static Runtype sTest = PROD;
 static State sState = Initialize;
@@ -48,7 +58,7 @@ static HttpLogger sHttpLog(LOG_HOST, LOG_PORT, LOG_PATH, SECRET_LOGGING_KEY);
 static Logger Log(&sHttpLog, sTest == PROD ? LOG_TO_HTTP : LOG_TO_BOTH);
 
 static const uint8_t FACTORY_RESET_PIN = A0;
-static const unsigned long FACTORY_RESET_HOLD_MS = 5000;
+static const unsigned long FACTORY_RESET_HOLD_MS = 3000;
 
 static const uint8_t MODEM_RELAY_PIN = A5;
 static const uint8_t ROUTER_RELAY_PIN = 5;
@@ -57,7 +67,76 @@ static IndicatorLED sRGB;
 static Connector sConnector(sRGB, Log);
 
 static int sFailureCnt = 0;
+static int sCycleCnt = 0;
 static const char *sPendingEmail = NULL;
+
+static unsigned long sDiagnosticBlinkNextMs = 0;
+static bool sTestWDT = false;
+
+static VBat *sVBat = NULL;
+
+#define STATE_LOG_MAGIC (0xDEADBEEF)
+
+// WDT Timeout chosen based on worst-case delay expected.
+// If DNS lookup fails, it could take 25s: 
+//   - DNS resolution: up to 20 seconds
+//   - Ping: up to 5 seconds
+#define WDT_TIMEOUT_MS (26000)
+
+
+struct StateLog {
+  uint32_t magic;
+  int resetCnt;
+  State lastState;
+  State pendingState;
+};
+
+SoftWatchdog *sWatchdog = NULL;
+
+
+
+static const char *StateName(State s) {
+  if (((int) s < Initialize) || ((int) s > RemoteBounceCheck)) return "unknown";
+  else return StateNames[(int) s];
+}
+
+
+static void diagnosticBlink(int cause) {
+  bool savedRed = sRGB.getRed();
+  bool savedGreen = sRGB.getGreen();
+  bool savedBlue = sRGB.getBlue();
+  
+  int numBlinks = 0;
+  bool isRed = false, isGreen = false, isBlue = false;
+
+  isGreen = isBlue = true;
+  switch (cause) {
+    case WD_RESET_POWER_ON:    numBlinks = 1; break;
+    case WD_RESET_WATCHDOG:    numBlinks = 2; break;
+    case WD_RESET_EXTERNAL:    numBlinks = 3; break;
+    case WD_RESET_BOD:         numBlinks = 4; break;
+    case WD_RESET_SYST:        numBlinks = 5; break;
+    case WD_RESET_UNKNOWN:
+    default:                   numBlinks = 6; break;
+  }
+
+  for (int i = 0; i < numBlinks; i++) {
+    sRGB.off();
+    watchdog_delay(150);
+    if (isGreen) sRGB.setGreen(true);
+    if (isRed) sRGB.setRed(true);
+    if (isBlue) sRGB.setBlue(true);
+    watchdog_delay(150);
+  }
+
+  sRGB.off();
+  watchdog_delay(500);
+
+  sRGB.setRed(savedRed);
+  sRGB.setGreen(savedGreen);
+  sRGB.setBlue(savedBlue);
+  watchdog_delay(500);
+}
 
 
 static const char *to_str(const IPAddress &ip)
@@ -65,11 +144,6 @@ static const char *to_str(const IPAddress &ip)
   static char buf[20];
   sprintf(buf, "%d.%d.%d.%d", ip[0], ip[1], ip[2], ip[3]);
   return buf;
-}
-
-static const char *to_str(const char *s)
-{
-  return s;
 }
 
 
@@ -95,15 +169,17 @@ static void enableModem(bool on) {
 }
 
 
-static void send_reset_email() {
-  Log.printf("WARNING(%ld): system restarted; sending an email...\n", millis());
+static void send_reset_email(const char *reason) {
+  Log.printf("INFO(%ld): system restarted (due to %s); sending an email...\n", millis(), reason);
   
   EmailRelay Mailer(EMAIL_HOST, EMAIL_PORT, EMAIL_PATH, SECRET_EMAIL_KEY);
   Mailer.begin();
 
   char subject[30];
   sprintf(subject, "ALERT %s", PROGNAME);
-  if (!Mailer.send(subject, "system restarted")) {
+  char body[50];
+  sprintf(body, "system restarted (due to %s)", reason);
+  if (!Mailer.send(subject, body)) {
     Log.printf("ERROR(%ld): EmailRelay failed\n", millis());
   } 
 }
@@ -123,6 +199,21 @@ static void send_email(const char *reason) {
 }
 
 
+void watchdog_delay(unsigned long ms)
+{
+   sWatchdog->pet();
+   while (ms > 100) {
+     delay(100);
+     sWatchdog->pet();
+     ms -= 100;
+   }
+   if (ms > 0) {
+     delay(ms);
+     sWatchdog->pet();
+   }
+}
+
+
 static void bounce_modem() {
   Log.printf("WARNING(%ld): bouncing modem...\n", millis());
 
@@ -135,13 +226,13 @@ static void bounce_modem() {
   enableModem(false);
   
   // leave off for 15 seconds
-  delay(15000);
+  watchdog_delay(15000);
   
   enableModem(true);
   
   // wait for 210s while modem initializes
   Log.printf("INFO(%ld): waiting 3 minutes for modem initialization...\n", millis());
-  delay(210000);
+  watchdog_delay(210000);
 
   sPendingEmail = "modem failure";
 
@@ -164,13 +255,13 @@ static void bounce_router() {
   enableRouter(false);
   
   // leave off for 15 seconds
-  delay(15000);
+  watchdog_delay(15000);
   
   enableRouter(true);
   
   // wait for 210s while router initializes
   Log.printf("INFO(%ld): waiting 3 minuites for router initialization...\n", millis());
-  delay(210000);
+  watchdog_delay(210000);
   
   sPendingEmail = "router failure";
   
@@ -184,14 +275,16 @@ static void bounce_router() {
 static void nextState(State nextState, long delay) {
   sStateAfterWait = nextState;
   sState = Wait;
-  sWait_ms = delay;  
+  sWait_ms = delay;
+  StateLog *pram = (StateLog*) sWatchdog->pram();
+  pram->lastState = sState;
+  pram->pendingState = nextState;
 }
 
 
 void printWiFiStatus() {
-  // print the SSID of the network you're attached to:
-  Log.printf("INFO(%ld): SSID: %s\n", millis(), WiFi.SSID());
-
+  // the SSID of the network has already been reported in the attempt message
+  
   // print your WiFi shield's IP address:
   Log.printf("INFO(%ld): IP Address: %s\n", millis(), to_str(WiFi.localIP()));
 
@@ -202,7 +295,7 @@ void printWiFiStatus() {
 
 
 static int ping_test(const char *devname, const char *ipstr, State thisState, State successState, void (*bounceFtor)()) {
-  //Log.printf("INFO(%ld): pinging %s @ %s\n", millis(), devname, ipstr);
+  //Log.printf("DEBUG(%ld): pinging %s @ %s\n", millis(), devname, ipstr);
   if (WiFi.ping(ipstr) > 0) {
     Log.printf("INFO(%ld): successful ping of %s @ %s\n", millis(), devname, ipstr);
     nextState(successState, 2*1000);
@@ -230,11 +323,11 @@ static bool checkFactoryResetButton() {
   pinMode(FACTORY_RESET_PIN, INPUT_PULLUP);
 
   // Let the pin settle after reset.
-  delay(20);
+  watchdog_delay(20);
 
   unsigned long start = millis();
 
-  Log.printf("INFO(%ld): Reset button held; considering factory-reset\n", millis());
+  Log.printf("INFO(%ld): System Reset; considering Factory reset\n", millis());
 
   while (digitalRead(FACTORY_RESET_PIN) == LOW) {
     unsigned long held = millis() - start;
@@ -242,22 +335,22 @@ static bool checkFactoryResetButton() {
     if (held >= FACTORY_RESET_HOLD_MS) {
       Log.printf("WARNING(%ld): Factory reset requested\n", millis());
 
-      // Wait for release before continuing, so the button press
+      // Wait for release before continuing, so the button bounce
       // does not immediately trigger another reset cycle.
       while (digitalRead(FACTORY_RESET_PIN) == LOW) {
-        delay(50);
+        watchdog_delay(50);
         sRGB.toggleRed();
       }
       sRGB.setRed(false);
 
-      delay(100);
+      watchdog_delay(100);
       return true;
     }
 
-    delay(20);
+    watchdog_delay(20);
   }
 
-  Log.printf("INFO(%ld): Reset button released before factory-reset timeout\n", millis());
+  Log.printf("INFO(%ld): Factory reset not requested\n", millis());
   return false;
 }
 
@@ -313,7 +406,7 @@ static bool clearRemoteBounceFlag(const char *rev) {
 
   unsigned long deadline = millis() + 10000;
   while (client.connected() && !client.available() && millis() < deadline) {
-    delay(10);
+    watchdog_delay(10);
   }
 
   int status = 0;
@@ -357,7 +450,7 @@ static void checkRemoteBounce() {
 
   unsigned long deadline = millis() + 10000;
   while (client.connected() && !client.available() && millis() < deadline) {
-    delay(10);
+    watchdog_delay(10);
   }
 
   if (!client.available()) {
@@ -394,7 +487,7 @@ static void checkRemoteBounce() {
     } else if (!client.connected()) {
       break;
     } else {
-      delay(1);
+      watchdog_delay(1);
     }
   }
   body[bodyLen] = '\0';
@@ -437,10 +530,17 @@ void setup() {
   pinMode(ROUTER_RELAY_PIN, OUTPUT);
   digitalWrite(ROUTER_RELAY_PIN, LOW);
 
+  sVBat = VBat::singleton();
+  
   sState = Initialize;
 
-  bool factoryResetEnabled = checkFactoryResetButton();
-
+  // Set up 16-second watchdog (uses overflow counter for extended timeout)
+  sWatchdog = SoftWatchdog::singleton(WDT_TIMEOUT_MS);
+  
+  diagnosticBlink(sWatchdog->reset_cause());
+  diagnosticBlink(sWatchdog->reset_cause());
+  sDiagnosticBlinkNextMs = millis() + 30000;
+  
   if ((Log.getMode() == LOG_TO_BOTH) || (Log.getMode() == LOG_TO_SERIAL)) {
     //Initialize serial and wait for port to open:
     Serial.begin(9600);
@@ -451,7 +551,10 @@ void setup() {
     Serial.printf("\n\n");
   }
 
-
+  bool factoryResetEnabled = checkFactoryResetButton();
+  
+  Log.printf("INFO(%ld): Watchdog enabled with timeout (ms): %ld\n", millis(), WDT_TIMEOUT_MS);
+  
   // check for the presence of the shield:
   if (WiFi.status() == WL_NO_SHIELD) {
     Log.printf("FATAL(%ld): WiFi shield not present; can't proceed.\n", millis());
@@ -472,15 +575,33 @@ void setup() {
   // control will only return if connected
   sRGB.setGreen(true);
 
-  
   WiFi.maxLowPowerMode();
   sHttpLog.set_wifi_available(); // now all logging can go thru the Log facace
 
   printWiFiStatus();
 
-  send_reset_email();
+  sWatchdog->pet();
+  send_reset_email(sWatchdog->reset_cause_name());
+  sWatchdog->pet();
+
+  StateLog *pram = (StateLog*) sWatchdog->pram();
+  
+  if (pram->magic == STATE_LOG_MAGIC) {
+    pram->resetCnt++;
+    Log.printf("WARNING(%ld): RAM valid (%d times); States: last: %s, pending: %s\n",
+               millis(), pram->resetCnt, StateName(pram->lastState), StateName(pram->pendingState));
+  } else {
+    pram->magic = STATE_LOG_MAGIC;
+    pram->resetCnt = 0;
+    Log.printf("INFO(%ld): Power-on reset (RAM cleared)\n", millis());
+  }
+  
+  sWatchdog->pet();
+  pram->lastState = sState;
+  pram->pendingState = sStateAfterWait;
 
   // consider testing mode: should one of the addresses be perturbed, or directly trigger something
+  Log.printf("INFO(%ld): run mode: %s\n", millis(), Provision::RuntypeName(sTest));
   if (sTest == test_ROUTER) {
     // RouterIP is already set to *.*.*.111
   } else if (sTest == test_IP) {
@@ -494,8 +615,9 @@ void setup() {
   } else if (sTest == test_BOUNCE_ROUTER) {
     bounce_router();
   } else if (sTest == test_EMAIL) {      
-    Log.printf("INFO(%ld): testing email delivery\n", millis());
     send_email("testing email");
+  } else if (sTest == test_WDT) {
+    sTestWDT = true;
   }
 
 }
@@ -503,11 +625,15 @@ void setup() {
 
 void loop() {
 
+  StateLog *pram = (StateLog*) sWatchdog->pram();
+  
   switch (sState) {
-    case Initialize: 
+    case Initialize:
       sStateAfterWait = APConnect;
       sState = Wait;
       sWait_ms = 1000;
+      pram->lastState = Initialize;
+      pram->pendingState = APConnect;
       break;
     case APConnect:
       if (!sConnector.isConnected()) {
@@ -569,26 +695,42 @@ void loop() {
       ping_test("internet", to_str(Internet()), InternetPing, DnsPing, bounce_modem);
       break;
     case DnsPing:
-      ping_test("dns", DNS(), DnsPing, RemoteBounceCheck, bounce_modem);
+      if (sTestWDT && (sCycleCnt == 1)) {
+        // delay longer than WDT timeout
+	Log.printf("DEBUG(%ld): testing WDT with long delay...\n", millis());
+        delay(WDT_TIMEOUT_MS+1000); // note specific use of delay (instead of watchdog_delay)
+	sTestWDT = false;
+      } else {
+        ping_test("dns", DNS(), DnsPing, RemoteBounceCheck, bounce_modem);
+      }
       break;
     case RemoteBounceCheck:
       checkRemoteBounce();
       nextState(Sleep, 1000);
       break;
-    case Sleep: 
+    case Sleep:
+      Log.printf("INFO(%ld): VBat: %d mV\n", millis(), (int) (sVBat->readVolts() * 1000.0f + 0.5f));
       Log.printf("INFO(%ld): sleeping until next check in %d mins\n", millis(), TIME_BETWEEN_MONITOR_ATTEMPTS_ms/1000/60);
       nextState(Initialize, TIME_BETWEEN_MONITOR_ATTEMPTS_ms);
       sFailureCnt = 0;
+      sCycleCnt++;
       break;
-    case Wait: 
+    case Wait:
       Log.flush();
-      delay(1);
+      if (millis() >= sDiagnosticBlinkNextMs) {
+        diagnosticBlink(sWatchdog->reset_cause());
+        diagnosticBlink(sWatchdog->reset_cause());
+        sDiagnosticBlinkNextMs = millis() + 30000;
+      }
+      watchdog_delay(1);
       if (--sWait_ms == 0) {
         if (sPendingEmail) {
           send_email(sPendingEmail);
           sWait_ms = 30000; // wait some more for email to send+settle
           sPendingEmail = NULL;
         } else {
+	  pram->lastState = Wait;
+	  pram->pendingState = sStateAfterWait;
           sState = sStateAfterWait;
           sStateAfterWait = Initialize;
         }
