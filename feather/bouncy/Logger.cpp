@@ -24,7 +24,7 @@ static void _LogAssertFunc(const char *msg, const char *file, int line)
   while (true) {watchdog_delay(1);}
 }
 
-#define LogAssert(test,msg,file,linenum) {if (!test) {_LogAssertFunc(msg, file, linenum);}}
+#define LogAssert(test,msg,file,linenum) {if (!(test)) {_LogAssertFunc(msg, file, linenum);}}
 
 static char _queue[LOG_QUEUE_DEPTH][LOG_LINE_MAX];
 static size_t _head = 0;
@@ -79,7 +79,7 @@ static void popOldest() {
 
 
 static void enqueue(const char *line) {
-  LogAssert(strlen(line) <= LOG_LINE_MAX - CLIP_LEN, "log line too long...", __FILE__, __LINE__);
+  LogAssert(strlen(line) < LOG_LINE_MAX, "log line too long...", __FILE__, __LINE__);
   
   if (_count == LOG_QUEUE_DEPTH) {
     popOldest();

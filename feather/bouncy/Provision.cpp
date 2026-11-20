@@ -393,13 +393,23 @@ bool Provision::runFlow() {
   snprintf(ipstr, sizeof(ipstr), "%u.%u.%u.%u",
            ip[0], ip[1], ip[2], ip[3]);
 
-  mLogger.printf("INFO(%lu): AP started\n", millis());
+  mLogger.printf("INFO(%lu): AP started; connect to 'Bouncy-Setup', then open http://%s/\n", millis(), ipstr);
+
+  // On ATWINC1500, WiFiServer silently fails to bind in AP mode until a
+  // WiFi client has associated at the layer-2 level.  Wait for that first.
+  while (WiFi.status() != WL_AP_CONNECTED) {
+    mRGB.toggleRed();
+    watchdog_delay(250);
+    mRGB.toggleRed();
+    watchdog_delay(250);
+  }
+
+  mLogger.printf("INFO(%lu): Client associated; starting provisioning server\n", millis());
 
   WiFiServer ProvisionServer(80);
   ProvisionServer.begin();
 
-  mLogger.printf("INFO(%lu): Provisioning Web Server started\n", millis());
-  mLogger.printf("INFO(%lu): Open http://%s/\n", millis(), ipstr);
+  mLogger.printf("INFO(%lu): Provisioning Web Server started at http://%s/\n", millis(), ipstr);
 
   bool saved = false;
   while (!saved) {

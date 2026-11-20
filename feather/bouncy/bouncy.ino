@@ -667,13 +667,15 @@ void loop() {
         } else {
           // all tries exhausted...  have to bounce the router
           Log.printf("WARNING(%lu): All AP connect tests exhausted; bouncing router...\n", millis());
-                     bounce_router();
+          bounce_router();
 
-          // reconnect -- try forever
-          sConnector.reconnect();
-
-          sRGB.off();
-          sRGB.setGreen(true);
+          // bounded reconnect; if still down, return to normal cycle and bounce again
+          if (sConnector.reconnect(5)) {
+            sRGB.off();
+            sRGB.setGreen(true);
+          }
+          // on failure, LED stays Blue — reconnect() restored it,
+          // and APConnect will manage it from here
           sPendingEmail = "AP disconnect";
 
           sFailureCnt = 0;

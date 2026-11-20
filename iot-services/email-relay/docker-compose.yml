@@ -10,7 +10,7 @@ services:
     dns:
       - 8.8.8.8
       - 8.8.4.4
-      
+
     environment:
       PORT: "8093"
       SHARED_KEY: "${SHARED_KEY}"
